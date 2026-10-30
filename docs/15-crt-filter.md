@@ -35,3 +35,31 @@ beam's 8192): a wider frame gets them in proportion, so it keeps as many samples
 
 ## Performance
 Measured with `DS_CRT_TIME=1` (GPU time a frame; `=2` also each pass).
+
+Intel UHD Graphics 630 (i5-10500T, Mesa 26 iris, GPU at its 1150 MHz maximum), ms of GPU time a frame,
+curved; 16:9 is 1920×1067 (widescreen 16:9), 4:3 is 1440×1080:
+
+| Preset | Full 16:9 | Super lite 16:9 | Full 4:3 | Super lite 4:3 | Super lite 1280×711 |
+|---|---|---|---|---|---|
+| Consumer TV (Composite) | 148 | 65 | 111 | 48 | 43 |
+| Consumer TV (RGB SCART) | 99 | 44 | 74 | 34 | 23 |
+| Trinitron TV (S-Video) | 137 | 55 | 99 | 39 | |
+| Old TV (RF Antenna) | 199 | 76 | 158 | 53 | |
+| Studio Monitor (Composite) | 121 | 54 | 90 | 40 | |
+| Studio Monitor (RGB) | 95 | 41 | 72 | 31 | |
+| Commodore 1084S Monitor | 100 | 47 | 75 | 36 | |
+| CRT Projector | 87 | 38 | 66 | 29 | 20 |
+
+None reaches the 16.7 ms of a 60 Hz frame on this GPU. Per pass (full composite, 16:9): encode 16 ms,
+decode 42, beam 51, crt 36, present 4. Intel's compiler spills registers on two of the large passes
+(`INTEL_DEBUG=perf`: "fragment shader triggered register spilling", SIMD16 failed); forcing SIMD16
+(`INTEL_SIMD_DEBUG=fs16`) gains under 10%, half-float targets nothing (the passes are ALU-bound). For
+comparison, Lola Retro's README gives 5.4–6.6 ms (full) and 1.7–2.5 ms (super lite) on an Intel Core
+Ultra 5 225U with Vulkan at 1600×1200, so recent integrated and discrete GPUs should have room to spare.
+
+At most one filtered frame is in flight (a fence waited for before the next one): with a GPU slower than
+the game, frames would otherwise pile up (headless, where nothing else waits for the GPU, this showed as a
+blank window). A GPU that slow therefore slows the game down.
+
+The shaders compile once per preset and are cached by the driver: the first start took 16 s on Mesa for
+the full composite preset, later ones 0.3 to 1.6 s.
