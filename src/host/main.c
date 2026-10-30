@@ -662,6 +662,11 @@ static void toggle_fullscreen(void)
 
 /* ---------------- video ---------------- */
 static double fps_game, fps_disp;
+static int sync_on;                         /* frame pacing: by the display now (see pacing_update) */
+static struct {                             /* the last second of presents, for Show FPS: Diagnostics */
+    double avg_ms, max_ms;
+    int late, fast;                         /* refreshes missed; presents that didn't wait for one */
+} pstat;
 
 static SDL_FRect game_dst;                   /* where the game image was drawn */
 
@@ -1351,6 +1356,50 @@ static void draw_game(int ow, int oh)
     }
 }
 
+/* Show FPS: Diagnostics. What the display really does, with hints in plain
+ * words: the questions a tearing or judder report needs answered. */
+static void draw_diagnostics(void)
+{
+    static const char *const wm[] = { "windowed", "borderless fullscreen", "exclusive fullscreen" };
+    char L[10][160], H[4][160];
+    SDL_FColor col[10];
+    int n = 0, nh = 0;
+    SDL_FColor ok = ui_rgba(160, 230, 140, 255), warn = ui_rgba(250, 200, 80, 255), bad = ui_rgba(250, 110, 90, 255);
+    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
+    float hz = dm ? dm->refresh_rate : 0.0f;
+    int ww = 0, wh = 0, vs = -9;
+    SDL_GetWindowSizeInPixels(win, &ww, &wh);
+    SDL_GetRenderVSync(ren, &vs);
+
+    SDL_snprintf(L[n], sizeof L[0], "Game %.1f fps   Display %.1f fps", fps_game, fps_disp);
+    col[n++] = ok;
+    SDL_snprintf(L[n], sizeof L[0], "%s / %s   screen %dx%d @ %.2f Hz   window %dx%d, %s",
+                 SDL_GetCurrentVideoDriver(), SDL_GetRendererName(ren), dm ? dm->w : 0, dm ? dm->h : 0, hz,
+                 ww, wh, wm[g_set.window_mode < 3 ? g_set.window_mode : 0]);
+    col[n++] = hz > 0.0f && (hz < 59.0f || hz > 61.0f) ? warn : ok;
+    SDL_snprintf(L[n], sizeof L[0], "VSync %s (driver: %s)   Pacing: %s", g_set.vsync ? "on" : "off",
+                 vs == 1 ? "on" : vs == 0 ? "off" : "?", sync_on ? "one game frame per refresh" : "game clock (59.92 Hz)");
+    col[n++] = ok;
+    SDL_snprintf(L[n], sizeof L[0], "Frame time %.1f ms avg, %.1f max   late %d/s   early %d/s",
+                 pstat.avg_ms, pstat.max_ms, pstat.late, pstat.fast);
+    col[n++] = pstat.late > 1 || (g_set.vsync && pstat.fast > 2) ? bad : ok;
+
+    if (hz > 0.0f && (hz < 59.0f || hz > 61.0f))
+        SDL_snprintf(H[nh++], sizeof H[0], "The screen runs at %.0f Hz: the game is made for 60. Pick a 60 Hz mode.", hz);
+    if (g_set.vsync && pstat.fast > 2)
+        SDL_snprintf(H[nh++], sizeof H[0], "Frames don't wait for the screen: tearing likely (a compositor, or the driver ignores VSync).");
+    if (pstat.late > 1)
+        SDL_snprintf(H[nh++], sizeof H[0], "Frames miss the screen's refresh: the computer or the graphics card is too slow for these settings.");
+    if (!g_set.vsync)
+        SDL_snprintf(H[nh++], sizeof H[0], "VSync is off: turn it on (Display) for smooth, tear-free motion.");
+    for (int i = 0; i < nh && n < 10; i++) { SDL_strlcpy(L[n], H[i], sizeof L[0]); col[n++] = warn; }
+
+    float lh = ui_line_h(UI_SMALL), w = 0;
+    for (int i = 0; i < n; i++) { float t = ui_text_w(UI_SMALL, L[i]); if (t > w) w = t; }
+    ui_rect(1260 - w - 16, 10, w + 16, lh * n + 12, ui_rgba(0, 0, 0, 190));
+    for (int i = 0; i < n; i++) ui_text_right(UI_SMALL, 1252, 16 + lh * i, col[i], L[i]);
+}
+
 static void draw_sound_lab(void);
 static void present(void)
 {
@@ -1383,7 +1432,8 @@ static void present(void)
         ui_rect(24, 22, ui_text_w(UI_BODY, osd) + 28, 40, ui_rgba(10, 12, 8, 200));
         ui_text(UI_BODY, 38, 28, ui_rgba(242, 178, 58, 255), osd);
     }
-    if (g_set.show_fps) {
+    if (g_set.show_fps == 2) draw_diagnostics();
+    else if (g_set.show_fps) {
         char s[96];
         SDL_snprintf(s, sizeof s, "%s  Game %.0f  Display %.0f", SDL_GetRendererName(ren), fps_game, fps_disp);
         ui_rect(1260 - ui_text_w(UI_SMALL, s) - 16, 10, ui_text_w(UI_SMALL, s) + 16, 30, ui_rgba(0, 0, 0, 160));
@@ -2271,6 +2321,54 @@ static void pump_audio(int keep)
     if (ratio < 0.99f) ratio = 0.99f;
     if (ratio > 1.01f) ratio = 1.01f;
     SDL_SetAudioStreamFrequencyRatio(aud, ratio);
+}
+
+/* ---------------- frame pacing ----------------
+ * The Genesis runs at 59.92 Hz and most screens at 60 Hz. Paced by the clock,
+ * the game shows one frame twice about every 12 s, and the scroll stutters
+ * while the two clocks are nearly in step. Display sync runs one game frame
+ * per screen refresh instead (the game 0.13% faster; the audio rate control
+ * in pump_audio absorbs it). It needs VSync to really wait for the refresh:
+ * the time between presents is watched, and the clock takes over when the
+ * screen isn't near 60 Hz, VSync doesn't wait, or frames are missed. */
+static void pacing_update(uint64_t now)
+{
+    static uint64_t last, sec_t0;
+    static int fast, slow, good, cooldown;
+    static double sec_sum, sec_max;
+    static int sec_n, sec_late, sec_fast;
+    uint64_t dt = last ? now - last : 0;
+    last = now;
+    if (!dt) return;
+    sec_sum += dt / 1e6; sec_n++;
+    if (dt / 1e6 > sec_max) sec_max = dt / 1e6;
+    sec_late += dt > 19000000ull;
+    sec_fast += dt < 14500000ull;
+    if (now - sec_t0 >= 1000000000ull) {
+        pstat.avg_ms = sec_sum / sec_n; pstat.max_ms = sec_max;
+        pstat.late = sec_late; pstat.fast = sec_fast;
+        sec_t0 = now; sec_sum = sec_max = 0; sec_n = sec_late = sec_fast = 0;
+    }
+    if (dt < 14500000ull) fast++;           /* under 69 Hz: not waiting for a 60 Hz refresh */
+    else if (dt > 19000000ull) slow++;      /* a refresh missed */
+    else good++;
+    if (sync_on && fast >= 4) {             /* VSync stopped waiting: leave at once */
+        sync_on = 0; cooldown = 300;
+        SDL_Log("pacing: display sync off (presents not waiting for the refresh)");
+    }
+    if (fast + slow + good < 120) return;
+    if (cooldown > 0) cooldown -= 120;
+    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
+    float hz = dm ? dm->refresh_rate : 0.0f;
+    int want = g_set.display_sync && g_set.vsync && (hz == 0.0f || (hz > 59.0f && hz < 61.0f));
+    if (sync_on && (!want || slow > 12)) {
+        sync_on = 0; cooldown = 600;
+        SDL_Log("pacing: display sync off (%s)", want ? "missed refreshes" : "setting, VSync or refresh rate");
+    } else if (!sync_on && want && cooldown <= 0 && fast == 0 && slow <= 2) {
+        sync_on = 1;
+        SDL_Log("pacing: display sync on (%.2f Hz)", hz);
+    }
+    fast = slow = good = 0;
 }
 
 static void handle_event(const SDL_Event *e)
@@ -3334,6 +3432,11 @@ static void run_game(void)
             pump_audio(0);
             rewind_record();
             if (shot_every && g_frame % shot_every == 0) save_bmp(shot_dir);
+        } else if (sync_on && !ff) {
+            cpu_run_frame();                     /* one game frame per refresh */
+            pump_audio(1);
+            rewind_record();
+            next = now + FRAME_NS;               /* the clock picks up from here if sync stops */
         } else {
             int ran = 0, maxrun = ff ? g_set.ff_speed : 4;
             if (now > next && now - next > 250000000ull) next = now;      /* resync after a stall */
@@ -3350,6 +3453,7 @@ static void run_game(void)
         if (!halted) scene_frame();
         present();
         after_present();
+        if (!max_ticks) pacing_update(SDL_GetTicksNS());
         disp_frames++;
         if (now - fps_t0 >= 1000000000ull) {
             double dt = (now - fps_t0) / 1e9;
@@ -3359,8 +3463,8 @@ static void run_game(void)
         }
         if (max_ticks) continue;
         if (!halted) {
-            uint64_t t = SDL_GetTicksNS();
-            if (t < next && next - t > 2000000) SDL_DelayNS(next - t - 1000000);
+            uint64_t t = SDL_GetTicksNS();               /* (display sync: present() already waited) */
+            if (!sync_on && t < next && next - t > 2000000) SDL_DelayNS(next - t - 1000000);
         } else {
             SDL_Delay(8);
         }
