@@ -687,11 +687,12 @@ static int find_compositing(void)
 {
 #ifdef __linux__
     static SDL_SharedObject *x11;
+    static int tried;
     static unsigned long (*intern)(void *, const char *, int);
     static unsigned long (*owner)(void *, unsigned long);
     if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11")) return 0;
     void *dpy = SDL_GetPointerProperty(SDL_GetWindowProperties(win), SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
-    if (!x11 && (x11 = SDL_LoadObject("libX11.so.6"))) {
+    if (!tried++ && (x11 = SDL_LoadObject("libX11.so.6"))) {
         *(void **)&intern = (void *)SDL_LoadFunction(x11, "XInternAtom");
         *(void **)&owner = (void *)SDL_LoadFunction(x11, "XGetSelectionOwner");
     }
@@ -2432,7 +2433,7 @@ static void diag_second(uint64_t now)
     astat = astat_now;
     astat_now = (audio_stat){ 0, 0, astat.ratio, 0, 0, 0 };
     if (g_set.show_fps == 2) {
-        gpumon_poll(&gstat);
+        gpumon_get(&gstat);
         compositing = find_compositing();
     }
     diag_log(now);
@@ -2453,10 +2454,16 @@ static void pacing_update(uint64_t now)
     uint64_t dt = last ? now - last : 0;
     last = now;
     if (!dt) return;
-    /* expected: a refresh with VSync waiting, else a game frame (clock pacing) */
     float hz = display_hz();
+    int want = g_set.display_sync && g_set.vsync && (hz == 0.0f || near_60(hz));
+    if (sync_on && !want) {                 /* setting, VSync or screen changed: the clock at once */
+        sync_on = 0;
+        SDL_Log("pacing: display sync off (setting, VSync or refresh rate)");
+    }
+    /* expected gap: a refresh while synced; with the clock, the whole number of
+     * refreshes a game frame lands on when VSync waits, else a game frame */
     double refresh = hz > 0.0f ? 1e9 / hz : (double)FRAME_NS;
-    double expect = sync_on ? refresh : (refresh > FRAME_NS ? refresh : (double)FRAME_NS);
+    double expect = sync_on ? refresh : g_set.vsync ? SDL_ceil(FRAME_NS / refresh - 0.05) * refresh : (double)FRAME_NS;
     int is_early = g_set.vsync && dt < refresh * 0.85, is_late = dt > expect * 1.15;
     pstat_now.sum_ms += dt / 1e6;
     pstat_now.n++;
@@ -2471,10 +2478,9 @@ static void pacing_update(uint64_t now)
     }
     if (early + late + good < 120) return;
     if (cooldown > 0) cooldown -= 120;
-    int want = g_set.display_sync && g_set.vsync && (hz == 0.0f || near_60(hz));
-    if (sync_on && (!want || late > 12)) {
+    if (sync_on && late > 12) {
         sync_on = 0; cooldown = 600;
-        SDL_Log("pacing: display sync off (%s)", want ? "missed refreshes" : "setting, VSync or refresh rate");
+        SDL_Log("pacing: display sync off (missed refreshes)");
     } else if (!sync_on && want && cooldown <= 0 && early == 0 && late <= 2) {
         sync_on = 1;
         SDL_Log("pacing: display sync on (%.2f Hz)", hz);
@@ -3578,7 +3584,7 @@ static void run_game(void)
             uint64_t t = SDL_GetTicksNS();               /* (display sync: present() already waited) */
             /* clock pacing: wait for the next game frame, so the picture (and the CRT
              * filter's GPU work) is drawn once a frame even if VSync doesn't wait */
-            if (!sync_on && t < next) SDL_DelayNS(next - t);
+            if (!sync_on && t < next) SDL_DelayPrecise(next - t);   /* on time: sleeps, then spins the last moment */
         } else {
             SDL_Delay(8);
         }

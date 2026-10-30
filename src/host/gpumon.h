@@ -16,6 +16,9 @@ typedef struct {
     int clock;                 /* graphics clock, MHz */
 } gpu_stat;
 
-void gpumon_poll(gpu_stat *s);   /* about once a second; cheap */
+/* The latest values. The first call starts a thread that reads them once a
+ * second (opening NVML can take seconds, a reading milliseconds: neither
+ * belongs on the game's thread); until its first reading, all unknown. */
+void gpumon_get(gpu_stat *s);
 
 #endif
