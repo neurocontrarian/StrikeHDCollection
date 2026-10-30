@@ -92,7 +92,8 @@ static struct {
     int failed, n, np;
     pass_t p[MAX_PASSES];
     char pname[MAX_PARAMS][32];
-    float pval[MAX_PARAMS];
+    float pval[MAX_PARAMS];        /* what the passes get */
+    float pdef[MAX_PARAMS];        /* the preset's values */
 } P;
 
 static GLuint in_tex, vbo, vao, out_fbo;
@@ -366,22 +367,31 @@ static int pass_size(const pass_t *p, int ax, int prev, int vp, int in_w)
     return n < 1 ? 1 : n > max_tex ? max_tex : n;
 }
 
-int crt_draw(int preset, int flat, int lite, const uint32_t *px, int pitch, int w, int h,
+/* a parameter over the preset's value (if the preset's shaders have it) */
+static void set_param(const char *name, float v)
+{
+    int i = param_index(name, 0);
+    if (i >= 0) P.pval[i] = v;
+}
+
+int crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
              int console, SDL_FRect dst, uint64_t frame)
 {
+    int preset = look->preset;
     if (!ok || preset < 1 || preset >= CRT_PRESET_COUNT) return 0;
     int vw = (int)SDL_floorf(dst.w + 0.5f), vh = (int)SDL_floorf(dst.h + 0.5f);
     if (vw < 1 || vh < 1) return 0;
 
     char key[128];
-    SDL_snprintf(key, sizeof key, "%s%s/%s.glslp", lite ? "super-lite/" : "", flat ? "flat" : "curved", preset_file[preset]);
+    SDL_snprintf(key, sizeof key, "%s%s/%s.glslp", look->lite ? "super-lite/" : "", look->flat ? "flat" : "curved", preset_file[preset]);
     if (strcmp(key, P.key)) {
         SDL_FlushRenderer(R);
         SDL_strlcpy(P.key, key, sizeof P.key);
         uint64_t t0 = SDL_GetTicksNS();
         P.failed = !load_preset(key);
         if (P.failed) { free_preset(); SDL_snprintf(why, sizeof why, "The CRT preset %s could not be loaded (see the log).", key); }
-        else SDL_Log("crt: %s, %d passes, %.0f ms", key, P.n, (SDL_GetTicksNS() - t0) / 1e6);
+        else memcpy(P.pdef, P.pval, sizeof P.pdef);
+        if (!P.failed) SDL_Log("crt: %s, %d passes, %.0f ms", key, P.n, (SDL_GetTicksNS() - t0) / 1e6);
         gl.BindFramebuffer(GL_FRAMEBUFFER, 0);   /* the window; SDL binds its own target again */
     }
     if (P.failed) return 0;
@@ -450,10 +460,16 @@ int crt_draw(int preset, int flat, int lite, const uint32_t *px, int pitch, int 
     /* the game's own settings over the preset's: the Mega Drive's console
      * timing (Auto would guess from the frame size, which widescreen changes),
      * and the 224 lines filling the picture height, so the picture covers
-     * the same area as without the filter */
-    int pc = param_index("LR_CONSOLE", 0), pf = param_index("LR_FILL", 0);
-    if (pc >= 0) P.pval[pc] = (float)console;
-    if (pf >= 0) P.pval[pf] = 1;
+     * the same area as without the filter; then the player's options */
+    memcpy(P.pval, P.pdef, sizeof P.pval);
+    set_param("LR_CONSOLE", (float)console);
+    set_param("LR_FILL", 1);
+    if (!look->glow) { set_param("LR_GLOW", 0); set_param("LR_REFLECT", 0); }
+    if (!look->wires) set_param("LR_DAMPER", 0);
+    if (look->antimoire) {
+        set_param("LR_MASK_PX", 1);     /* auto: whole screen pixels nearest the preset's tube */
+        set_param("LR_SMOOTH", 1);      /* each pixel shows the light averaged over its height */
+    }
 
     /* DS_CRT_TIME=1 logs the GPU time a frame, 2 also each pass (it waits for
      * the GPU, so it slows the game a little) */

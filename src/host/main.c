@@ -1292,7 +1292,8 @@ static void draw_game(int ow, int oh)
     static int crt_said;
     if (g_set.crt) {
         int console = vdp_display_width() <= 256 ? 3 : 2;   /* Lola Retro: Mega Drive H32 / H40 */
-        if (crt_draw(g_set.crt, g_set.crt_flat, g_set.crt_lite, fb, VDP_MAX_W, fb_w, VDP_H, console, dst, g_frame)) {
+        crt_look look = { g_set.crt, g_set.crt_flat, g_set.crt_lite, g_set.crt_glow, g_set.crt_wires, g_set.crt_antimoire };
+        if (crt_draw(&look, fb, VDP_MAX_W, fb_w, VDP_H, console, dst, g_frame)) {
             crt_said = 0;
             return;
         }

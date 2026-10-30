@@ -24,6 +24,18 @@ picks curved or flat glass, **CRT Quality** the full or the super lite passes.
   Picture height (`LR_FILL`) 1, so the 224 lines fill the picture height and the picture covers the same
   area as without the filter (the HUD and minimap are placed on that area).
 
+## Options over the presets
+The presets stay as Lola Retro made them; three menu options change one or two parameters each:
+
+| Option | Default | Parameters |
+|---|---|---|
+| CRT Glass Glow | On | Off: `LR_GLOW` 0 (the halo the glass spreads around bright things) and `LR_REFLECT` 0 (the room's reflection) |
+| CRT Damper Wires | Off | On keeps `LR_DAMPER` as in the preset: the two wires that hold a Trinitron's aperture grille, at about 1/3 and 2/3 of the height (Trinitron and studio monitor presets; lola-retro issue #16). Off: 0 |
+| CRT Anti-Moire | On | `LR_MASK_PX` 1 (the mask on whole screen pixels, lola-retro issue #11) and `LR_SMOOTH` 1 (each screen pixel shows the light averaged over its height): no moire bands or dark patches where the mask or the lines beat against the screen's pixels. Off: the mask at the tube's size |
+
+The first tester (Batocera, RTX) saw a horizontal line at about 3/5 of the height (the lower damper wire),
+the glass halo, and dark patches on some landscapes (most likely moire), hence these defaults.
+
 ## Widescreen
 Kodi's port draws the tube the shape of the area it is given (it doesn't define `LR_FIT_43`), and the TV
 model spreads the source line across the tube's width. So a widescreen frame (432 pixels at 16:9) becomes a

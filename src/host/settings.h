@@ -32,6 +32,9 @@ typedef struct {
     int crt;                  /* CRT filter: 0 off, else a Lola Retro preset (crt.h) */
     int crt_flat;             /* 1 = flat screen, square corners */
     int crt_lite;             /* 1 = the super lite passes (about a third of the GPU time) */
+    int crt_glow;             /* glass glow and room reflection (the halo around bright things) */
+    int crt_wires;            /* a Trinitron's damper wires (the aperture grille presets) */
+    int crt_antimoire;        /* mask on screen pixels, smoothed scanlines */
     int sprite_flicker;       /* 1 = original per-line sprite limits */
     int widescreen;           /* WS_* */
     int hd_graphics;          /* use HD packs when present */
