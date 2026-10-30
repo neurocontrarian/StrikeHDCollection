@@ -45,6 +45,7 @@ static const char *const SCANS[] = { "Off", "Light", "Medium", "Strong" };
 static const char *const STRAFE[] = { "Original", "Fast (1.5x)", "Faster (2x)" };
 static const char *const DIFFICULTY[] = { "Recruit", "Remastered", "Original" };
 static const char *const SPEED[] = { "Smooth (no slowdown)", "Original (with slowdown)" };
+static const char *const FPSMODE[] = { "Off", "On", "Diagnostics" };
 static const char *const PACING[] = { "Exact (59.92 Hz)", "Match Display" };
 static const char *const FLICKER[] = { "Off (all sprites shown)", "Original (flicker)" };
 
@@ -57,7 +58,7 @@ static item tab_display[] = {
     { IT_CHOICE, "Window Mode", "Borderless fullscreen switches instantly; exclusive uses the resolution below.", &g_set.window_mode, WINMODE, 3 },
     { IT_MODE,   "Fullscreen Resolution", "Used in exclusive fullscreen. Desktop keeps your monitor's current mode.", &g_set.fullscreen_mode },
     { IT_CHOICE, "VSync", "Syncs to your monitor's refresh to prevent tearing.", &g_set.vsync, OFF_ON, 2 },
-    { IT_CHOICE, "Show FPS", "Shows game and display frame rates in the corner.", &g_set.show_fps, OFF_ON, 2 },
+    { IT_CHOICE, "Show FPS", "Shows game and display frame rates in the corner. Diagnostics adds the screen mode, VSync, frame pacing and frame times, with hints when something is wrong (tearing, judder).", &g_set.show_fps, FPSMODE, 3 },
     { IT_CHOICE, "Renderer (restart)", "Choose the SDL rendering backend. The active backend appears in the FPS display; restart to apply.", &g_set.renderer, RENDERER, RENDERER_COUNT },
 };
 static item tab_picture[] = {

@@ -59,7 +59,7 @@ void settings_defaults(settings_t *s)
 /* name, field, min, max */
 #define FIELDS(X) \
     X(window_mode, 0, WIN_MODE_COUNT - 1) X(fullscreen_mode, -1, 999) \
-    X(window_w, 320, 16384) X(window_h, 224, 16384) X(vsync, 0, 1) X(show_fps, 0, 1) X(renderer, 0, RENDERER_COUNT - 1) \
+    X(window_w, 320, 16384) X(window_h, 224, 16384) X(vsync, 0, 1) X(show_fps, 0, 2) X(renderer, 0, RENDERER_COUNT - 1) \
     X(aspect, 0, ASPECT_COUNT - 1) X(scaling, 0, SCALE_COUNT - 1) X(scanlines, 0, SCAN_COUNT - 1) \
     X(sprite_flicker, 0, 1) X(widescreen, 0, WS_COUNT - 1) \
     X(volume, 0, 100) X(fm_level, 0, 150) X(psg_level, 0, 150) X(mute_unfocused, 0, 1) \
