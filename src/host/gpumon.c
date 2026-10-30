@@ -76,7 +76,7 @@ static int amd_open(void)
     return ok;
 }
 
-void gpumon_poll(gpu_stat *s)
+static void gpumon_poll(gpu_stat *s)
 {
     *s = (gpu_stat){ NULL, -1, -1, -1, -1, -1 };
     unsigned v;
@@ -111,4 +111,33 @@ void gpumon_poll(gpu_stat *s)
             s->clock = hz >= 0 ? hz / 1000000 : -1;
         }
     }
+}
+
+/* ---- the polling thread ---- */
+static SDL_Mutex *lock;
+static gpu_stat latest = { NULL, -1, -1, -1, -1, -1 };
+
+static int SDLCALL poll_thread(void *ud)
+{
+    (void)ud;
+    for (;;) {
+        gpu_stat s;
+        gpumon_poll(&s);
+        SDL_LockMutex(lock);
+        latest = s;
+        SDL_UnlockMutex(lock);
+        SDL_Delay(1000);
+    }
+    return 0;
+}
+
+void gpumon_get(gpu_stat *s)
+{
+    static SDL_Thread *th;
+    if (!lock && (lock = SDL_CreateMutex()) && (th = SDL_CreateThread(poll_thread, "gpumon", NULL)))
+        SDL_DetachThread(th);
+    if (!lock) { *s = latest; return; }
+    SDL_LockMutex(lock);
+    *s = latest;
+    SDL_UnlockMutex(lock);
 }
