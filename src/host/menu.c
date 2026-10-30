@@ -5,6 +5,7 @@
 #include "ui.h"
 #include "input.h"
 #include "settings.h"
+#include "crt.h"
 
 /* ---------------- look ---------------- */
 #define C_PANEL   ui_rgba(14, 17, 12, 236)
@@ -42,6 +43,8 @@ static const char *const ASPECT[] = { "TV Shape (original)", "Square Pixels", "S
 static const char *const WIDE[] = { "Off (4:3)", "16:10", "16:9", "21:9", "32:9", "Match window" };
 static const char *const SCALING[] = { "Sharp", "Integer Only", "Smooth", "Pixelated" };
 static const char *const SCANS[] = { "Off", "Light", "Medium", "Strong" };
+static const char *const CRTSHAPE[] = { "Curved", "Flat" };
+static const char *const CRTQUALITY[] = { "Full", "Lite" };
 static const char *const STRAFE[] = { "Original", "Fast (1.5x)", "Faster (2x)" };
 static const char *const DIFFICULTY[] = { "Recruit", "Remastered", "Original" };
 static const char *const SPEED[] = { "Smooth (no slowdown)", "Original (with slowdown)" };
@@ -64,6 +67,9 @@ static item tab_picture[] = {
     { IT_CHOICE, "Pixel Shape", "TV shape matches a 4:3 set of the era. Square pixels is the raw image.", &g_set.aspect, ASPECT, 3 },
     { IT_CHOICE, "Scaling", "Sharp keeps pixels crisp at any size. Integer leaves borders but is exact.", &g_set.scaling, SCALING, 4 },
     { IT_CHOICE, "Scanlines", "Darkens alternate lines like a CRT.", &g_set.scanlines, SCANS, 4 },
+    { IT_CHOICE, "CRT Filter", "Lola Retro: the picture through a real CRT, from the console's video signal to the glass. Fills the screen, widescreen included. Needs OpenGL: with Renderer on Automatic it is chosen at the next start.", &g_set.crt, crt_names, CRT_PRESET_COUNT },
+    { IT_CHOICE, "CRT Screen", "Curved glass with rounded corners, or a flat screen.", &g_set.crt_flat, CRTSHAPE, 2 },
+    { IT_CHOICE, "CRT Quality", "Lite takes about a third of the graphics card's time, for slower graphics chips.", &g_set.crt_lite, CRTQUALITY, 2 },
     { IT_CHOICE, "Sprite Flicker", "The console could show only 20 sprites per line; Off draws them all.", &g_set.sprite_flicker, FLICKER, 2 },
     { IT_CHOICE, "Status HUD", "Shows armor, fuel, load and lives while flying.", &g_set.status_hud, OFF_ON, 2 },
     { IT_CHOICE, "HUD Position", "Which corner the status HUD sits in. If the minimap is in the same corner, it moves out of the way.", &g_set.hud_pos, HUDPOS, 4 },

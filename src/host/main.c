@@ -36,6 +36,7 @@
 #include "amiga_vm.h"
 #include "sfxmix.h"
 #include "modplay.h"
+#include "crt.h"
 
 static void music_stop(void);
 /* Amiga extras: moments the Genesis has no sound for (docs/13-amiga-ultimate.md).
@@ -1287,6 +1288,16 @@ static void draw_game(int ow, int oh)
 
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
     SDL_RenderClear(ren);
+    /* CRT filter: from the 1x picture (the tube makes its own detail) */
+    static int crt_said;
+    if (g_set.crt) {
+        int console = vdp_display_width() <= 256 ? 3 : 2;   /* Lola Retro: Mega Drive H32 / H40 */
+        if (crt_draw(g_set.crt, g_set.crt_flat, g_set.crt_lite, fb, VDP_MAX_W, fb_w, VDP_H, console, dst, g_frame)) {
+            crt_said = 0;
+            return;
+        }
+        if (!crt_said) { say(crt_why_not()); crt_said = 1; }
+    } else crt_said = 0;
     if (g_set.scaling == SCALE_SHARP && S > 1 && dh <= VDP_H * S) {
         /* HD art already has the detail: just filter it down */
         SDL_SetTextureScaleMode(src_tex, SDL_SCALEMODE_LINEAR);
@@ -3461,10 +3472,12 @@ int main(int argc, char **argv)
     win = SDL_CreateWindow(APP_TITLE, g_set.window_w, g_set.window_h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     /* Renderer is selected at launch. Environment setting SDL_RENDER_DRIVER
      * retains SDL's normal higher priority as an override. */
-    if (g_set.renderer == RENDERER_OPENGL) SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
+    /* The CRT filter runs on OpenGL: Automatic picks it when the filter is on. */
+    int want_gl = g_set.renderer == RENDERER_OPENGL || (g_set.renderer == RENDERER_AUTO && g_set.crt);
+    if (want_gl) SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
     else if (g_set.renderer == RENDERER_SOFTWARE) SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
     ren = win ? SDL_CreateRenderer(win, 0) : 0;
-    if (win && !ren && g_set.renderer != RENDERER_AUTO) {   /* chosen backend unavailable: let SDL pick */
+    if (win && !ren && (want_gl || g_set.renderer != RENDERER_AUTO)) {   /* chosen backend unavailable: let SDL pick */
         SDL_Log("renderer: %s unavailable (%s), using automatic", g_set.renderer == RENDERER_OPENGL ? "opengl" : "software", SDL_GetError());
         SDL_ResetHint(SDL_HINT_RENDER_DRIVER);
         ren = SDL_CreateRenderer(win, 0);
@@ -3474,6 +3487,7 @@ int main(int argc, char **argv)
         return 1;
     }
     tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, VDP_MAX_W, VDP_H);
+    if (!crt_init(ren)) SDL_Log("crt: %s", crt_why_not());
     ui_init(ren);
     load_icon();
     load_modes();

@@ -29,6 +29,9 @@ typedef struct {
     int aspect;               /* ASPECT_* */
     int scaling;              /* SCALE_* */
     int scanlines;            /* SCAN_* */
+    int crt;                  /* CRT filter: 0 off, else a Lola Retro preset (crt.h) */
+    int crt_flat;             /* 1 = flat screen, square corners */
+    int crt_lite;             /* 1 = the super lite passes (about a third of the GPU time) */
     int sprite_flicker;       /* 1 = original per-line sprite limits */
     int widescreen;           /* WS_* */
     int hd_graphics;          /* use HD packs when present */
