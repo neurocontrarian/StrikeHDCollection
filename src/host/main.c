@@ -1440,7 +1440,7 @@ static void draw_diagnostics(void)
     }
     if (cms > 14.0f)
         SDL_snprintf(H[nh++], sizeof H[0], "The CRT filter takes %.0f of the 16.7 ms a frame has: try %s.", cms,
-                     g_set.crt_lite ? "a lower resolution or an RGB preset" : "CRT Quality Lite or a lower resolution");
+                     g_set.crt_lite ? "a lower resolution or an RGB preset" : "Settings > CRT > Quality: Lite, or a lower resolution");
     if (hz > 0.0f && (hz < 59.0f || hz > 61.0f))
         SDL_snprintf(H[nh++], sizeof H[0], "The screen runs at %.0f Hz: the game is made for 60. Pick a 60 Hz mode.", hz);
     if (compositor[0] && g_set.window_mode != WIN_WINDOWED)

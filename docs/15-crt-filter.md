@@ -1,12 +1,12 @@
 # CRT filter (prototype)
 
 ## What it is
-Settings → Picture → **CRT Filter** runs the [Lola Retro](https://github.com/zoran123456/lola-retro) presets
+Settings → **CRT** → **Filter** runs the [Lola Retro](https://github.com/zoran123456/lola-retro) presets
 on the game picture: a simulation of the whole analog chain (the Mega Drive's video encoder, the cable, the
 TV's decoder, the electron beam, the phosphor mask and the glass). Eight of its fifteen presets fit a
 Genesis: Consumer TV (Composite), Consumer TV (RGB SCART), Trinitron TV (S-Video), Old TV (RF Antenna),
-Studio Monitor (Composite), Studio Monitor (RGB), Commodore 1084S Monitor and CRT Projector. **CRT Screen**
-picks curved or flat glass, **CRT Quality** the full or the super lite passes.
+Studio Monitor (Composite), Studio Monitor (RGB), Commodore 1084S Monitor and CRT Projector. **Screen**
+picks curved or flat glass, **Quality** the full or the super lite passes (all in the CRT tab).
 
 ## How it works
 - The shaders are Lola Retro's GLSL port for Kodi (`third_party/lola-retro`, unchanged, MIT), embedded in the

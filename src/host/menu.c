@@ -71,14 +71,6 @@ static item tab_picture[] = {
     { IT_CHOICE, "Pixel Shape", "TV shape matches a 4:3 set of the era. Square pixels is the raw image.", &g_set.aspect, ASPECT, 3 },
     { IT_CHOICE, "Scaling", "Sharp keeps pixels crisp at any size. Integer leaves borders but is exact.", &g_set.scaling, SCALING, 4 },
     { IT_CHOICE, "Scanlines", "Darkens alternate lines like a CRT.", &g_set.scanlines, SCANS, 4 },
-    { IT_CHOICE, "CRT Filter", "Lola Retro: the picture through a real CRT, from the console's video signal to the glass. Fills the screen, widescreen included. Needs OpenGL: with Renderer on Automatic it is chosen at the next start.", &g_set.crt, crt_names, CRT_PRESET_COUNT },
-    { IT_CHOICE, "CRT Screen", "Curved glass with rounded corners, or a flat screen.", &g_set.crt_flat, CRTSHAPE, 2 },
-    { IT_CHOICE, "CRT Quality", "Lite takes about a third of the graphics card's time, for slower graphics chips.", &g_set.crt_lite, CRTQUALITY, 2 },
-    { IT_CHOICE, "CRT Glass Glow", "The halo of light the glass spreads around bright things, and the room's reflection on it. Off keeps the picture crisp.", &g_set.crt_glow, OFF_ON, 2 },
-    { IT_CHOICE, "CRT Damper Wires", "Trinitron and studio monitors: the thin horizontal wires that hold the aperture grille. Real sets had them; Off removes the line.", &g_set.crt_wires, OFF_ON, 2 },
-    { IT_CHOICE, "CRT Anti-Moire", "Lines the mask up with your screen's pixels and smooths the scanlines, so no dark bands or patches appear (moire). Off: the mask at the tube's real size.", &g_set.crt_antimoire, OFF_ON, 2 },
-    { IT_CHOICE, "CRT Dither Blend", "The game's artists drew water, shadows and sand with 1-pixel dither patterns that a composite TV blended. On blends them on the RGB and S-Video presets too (no shimmer or moire on water); Off keeps them sharp.", &g_set.crt_dither, OFF_ON, 2 },
-    { IT_CHOICE, "CRT Mask", "The phosphor dots or stripes. Below 4K they are finer than your screen can show and can shimmer on moving water or sand: Half or Off calms it (the scanlines and the glass stay).", &g_set.crt_mask, CRTMASK, 3 },
     { IT_CHOICE, "Sprite Flicker", "The console could show only 20 sprites per line; Off draws them all.", &g_set.sprite_flicker, FLICKER, 2 },
     { IT_CHOICE, "Status HUD", "Shows armor, fuel, load and lives while flying.", &g_set.status_hud, OFF_ON, 2 },
     { IT_CHOICE, "HUD Position", "Which corner the status HUD sits in. If the minimap is in the same corner, it moves out of the way.", &g_set.hud_pos, HUDPOS, 4 },
@@ -88,6 +80,16 @@ static item tab_picture[] = {
     { IT_CHOICE, "Minimap Threats", "Marks enemy guns and missiles (the pause map's AAA, Rapier and other enemy entries) near you in red. Off keeps the original challenge.", &g_set.minimap_threats, OFF_ON, 2 },
     { IT_CHOICE, "Minimap Position", "Which corner the minimap sits in. Hold the menu button (Back / Esc) or press M to show or hide it.", &g_set.minimap_pos, MMPOS, 4 },
     { IT_CHOICE, "HD Graphics", "Uses replacement art from an HD pack in the packs folder, when one is installed.", &g_set.hd_graphics, OFF_ON, 2 },
+};
+static item tab_crt[] = {
+    { IT_CHOICE, "Filter", "Lola Retro: the picture through a real CRT, from the console's video signal to the glass. Fills the screen, widescreen included. Needs OpenGL: with Renderer on Automatic it is chosen at the next start.", &g_set.crt, crt_names, CRT_PRESET_COUNT },
+    { IT_CHOICE, "Screen", "Curved glass with rounded corners, or a flat screen.", &g_set.crt_flat, CRTSHAPE, 2 },
+    { IT_CHOICE, "Quality", "Lite takes about a third of the graphics card's time, for slower graphics chips.", &g_set.crt_lite, CRTQUALITY, 2 },
+    { IT_CHOICE, "Glass Glow", "The halo of light the glass spreads around bright things, and the room's reflection on it. Off keeps the picture crisp.", &g_set.crt_glow, OFF_ON, 2 },
+    { IT_CHOICE, "Damper Wires", "Trinitron and studio monitors: the thin horizontal wires that hold the aperture grille. Real sets had them; Off removes the line.", &g_set.crt_wires, OFF_ON, 2 },
+    { IT_CHOICE, "Anti-Moire", "Lines the mask up with your screen's pixels and smooths the scanlines, so no dark bands or patches appear (moire). Off: the mask at the tube's real size.", &g_set.crt_antimoire, OFF_ON, 2 },
+    { IT_CHOICE, "Dither Blend", "The game's artists drew water, shadows and sand with 1-pixel dither patterns that a composite TV blended. On blends them on the RGB and S-Video presets too (no shimmer or moire on water); Off keeps them sharp.", &g_set.crt_dither, OFF_ON, 2 },
+    { IT_CHOICE, "Mask", "The phosphor dots or stripes. Below 4K they are finer than your screen can show and can shimmer on moving water or sand: Half or Off calms it (the scanlines and the glass stay).", &g_set.crt_mask, CRTMASK, 3 },
 };
 static item tab_audio[] = {
     { IT_CHOICE, "Edition", "Genesis, Amiga, or Remaster: the best of both, as players rated them. Sets the options below.", &g_set.edition, EDITION, 4 },
@@ -136,6 +138,7 @@ static item tab_cheats[] = {
 static struct { const char *name; item *it; int n; } tabs[] = {
 #define N(a) (int)(sizeof a / sizeof a[0])
     { "Display", tab_display, N(tab_display) }, { "Picture", tab_picture, N(tab_picture) },
+    { "CRT", tab_crt, N(tab_crt) },
     { "Audio", tab_audio, N(tab_audio) }, { "System", tab_system, N(tab_system) },
 #undef N
 };
