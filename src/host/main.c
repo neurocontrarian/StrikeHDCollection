@@ -662,7 +662,37 @@ typedef struct {                            /* audio over the last second, for D
     int clears, starved;                    /* queue thrown away (too full); queue nearly empty */
 } audio_stat;
 static audio_stat astat_now = { 1e9f, 0, 1, 0, 0 }, astat;
-static gpu_stat gstat;                      /* graphics card, polled each second while Diagnostics is shown */
+static gpu_stat gstat;
+static char compositor[32];                 /* a running X11 compositor (Linux), checked each second */
+
+/* Linux: is a compositing manager running? One that copies a fullscreen
+ * window on its own clock (picom with NVIDIA) tears it. */
+#ifdef __linux__
+static SDL_EnumerationResult SDLCALL find_compositor_cb(void *ud, const char *dir, const char *name)
+{
+    static const char *const names[] = { "picom", "compton", "xcompmgr", "compiz", "kwin_x11", "xfwm4", "marco" };
+    (void)ud;
+    if (name[0] < '0' || name[0] > '9') return SDL_ENUM_CONTINUE;
+    char path[64], comm[32] = "";
+    SDL_snprintf(path, sizeof path, "%s%s/comm", dir, name);
+    FILE *f = fopen(path, "r");
+    if (!f) return SDL_ENUM_CONTINUE;
+    if (!fgets(comm, sizeof comm, f)) comm[0] = 0;
+    fclose(f);
+    comm[strcspn(comm, "\n")] = 0;
+    for (size_t i = 0; i < SDL_arraysize(names); i++)
+        if (!strcmp(comm, names[i])) { SDL_strlcpy(compositor, comm, sizeof compositor); return SDL_ENUM_SUCCESS; }
+    return SDL_ENUM_CONTINUE;
+}
+#endif
+
+static void find_compositor(void)
+{
+    compositor[0] = 0;
+#ifdef __linux__
+    if (!SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11")) SDL_EnumerateDirectory("/proc/", find_compositor_cb, NULL);
+#endif
+}                      /* graphics card, polled each second while Diagnostics is shown */
 static void diag_extra(char *buf, size_t n) { if (n) buf[0] = 0; }   /* more measures for the log line */
 
 static SDL_FRect game_dst;                   /* where the game image was drawn */
@@ -1363,9 +1393,10 @@ static void draw_diagnostics(void)
                  SDL_GetCurrentVideoDriver(), SDL_GetRendererName(ren), dm ? dm->w : 0, dm ? dm->h : 0, hz,
                  ww, wh, wm[g_set.window_mode < 3 ? g_set.window_mode : 0]);
     col[n++] = hz > 0.0f && (hz < 59.0f || hz > 61.0f) ? warn : ok;
-    SDL_snprintf(L[n], sizeof L[0], "VSync %s (driver: %s)   Pacing: %s", g_set.vsync ? "on" : "off",
-                 vs == 1 ? "on" : vs == 0 ? "off" : "?", sync_on ? "one game frame per refresh" : "game clock (59.92 Hz)");
-    col[n++] = ok;
+    SDL_snprintf(L[n], sizeof L[0], "VSync %s (driver: %s)   Pacing: %s   Compositor: %s", g_set.vsync ? "on" : "off",
+                 vs == 1 ? "on" : vs == 0 ? "off" : "?", sync_on ? "one game frame per refresh" : "game clock (59.92 Hz)",
+                 compositor[0] ? compositor : "none");
+    col[n++] = compositor[0] && g_set.window_mode != WIN_WINDOWED ? warn : ok;
     SDL_snprintf(L[n], sizeof L[0], "Frame time %.1f ms avg, %.1f max   late %d/s   early %d/s",
                  pstat.avg_ms, pstat.max_ms, pstat.late, pstat.fast);
     col[n++] = pstat.late > 1 || (g_set.vsync && pstat.fast > 2) ? bad : ok;
@@ -1380,6 +1411,8 @@ static void draw_diagnostics(void)
 
     if (hz > 0.0f && (hz < 59.0f || hz > 61.0f))
         SDL_snprintf(H[nh++], sizeof H[0], "The screen runs at %.0f Hz: the game is made for 60. Pick a 60 Hz mode.", hz);
+    if (compositor[0] && g_set.window_mode != WIN_WINDOWED)
+        SDL_snprintf(H[nh++], sizeof H[0], "A compositor (%s) is running: it can tear the fullscreen picture. Stop it while playing.", compositor);
     if (g_set.vsync && pstat.fast > 2)
         SDL_snprintf(H[nh++], sizeof H[0], "Frames don't wait for the screen: tearing likely (a compositor, or the driver ignores VSync).");
     if (pstat.late > 1)
@@ -2348,6 +2381,7 @@ static void diag_tick(uint64_t now)
     if (now - last < 1000000000ull) return;
     last = now;
     gpumon_poll(&gstat);
+    find_compositor();
     astat = astat_now;
     astat_now = (audio_stat){ 1e9f, 0, astat.ratio, 0, 0 };
     if (!f) {
@@ -2365,6 +2399,7 @@ static void diag_tick(uint64_t now)
                 SDL_GetCurrentVideoDriver(), SDL_GetRendererName(ren), SDL_GetNumLogicalCPUCores(), SDL_GetSystemRAM());
         fprintf(f, "# game: %s\n", game ? game->id : "none");
         fprintf(f, "# graphics card monitor: %s\n", gstat.source ? gstat.source : "none (load, temperature and power unknown)");
+        fprintf(f, "# the compositor column: an X11 compositing manager running (- none)\n");
         session_started = 1;
         memset(&logged, 0xFF, sizeof logged);   /* write the settings below */
     }
@@ -2378,16 +2413,17 @@ static void diag_tick(uint64_t now)
             for (char *l = strtok(ini, "\n"); l; l = strtok(NULL, "\n")) fprintf(f, "#   %s\n", l);
             SDL_free(ini);
         }
-        fprintf(f, "# time_s game_fps display_fps screen pacing frame_avg_ms frame_max_ms late early gpu_load gpu_temp gpu_w fan clock_mhz audio_min_ms audio_max_ms audio_ratio audio_clears audio_starved extra\n");
+        fprintf(f, "# time_s game_fps display_fps screen pacing frame_avg_ms frame_max_ms late early gpu_load gpu_temp gpu_w fan clock_mhz audio_min_ms audio_max_ms audio_ratio audio_clears audio_starved compositor extra\n");
     }
     const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
     char extra[256];
     diag_extra(extra, sizeof extra);
-    fprintf(f, "%.0f %.1f %.1f %dx%d@%.2f %s %.2f %.2f %d %d %d %d %d %d %d %.0f %.0f %.4f %d %d %s\n",
+    fprintf(f, "%.0f %.1f %.1f %dx%d@%.2f %s %.2f %.2f %d %d %d %d %d %d %d %.0f %.0f %.4f %d %d %s %s\n",
             now / 1e9, fps_game, fps_disp, dm ? dm->w : 0, dm ? dm->h : 0, dm ? dm->refresh_rate : 0.0f,
             sync_on ? "display" : "clock", pstat.avg_ms, pstat.max_ms, pstat.late, pstat.fast,
             gstat.load, gstat.temp, gstat.power, gstat.fan, gstat.clock,
-            astat.min_ms > 1e8f ? -1.0f : astat.min_ms, astat.max_ms, astat.ratio, astat.clears, astat.starved, extra);
+            astat.min_ms > 1e8f ? -1.0f : astat.min_ms, astat.max_ms, astat.ratio, astat.clears, astat.starved,
+            compositor[0] ? compositor : "-", extra);
     fflush(f);
 }
 
