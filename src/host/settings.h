@@ -53,6 +53,7 @@ typedef struct {
     int ff_speed;             /* fast-forward multiplier 2-8 */
     int pause_unfocused;
     int authentic_speed;      /* 1 = original CPU speed (slowdown) */
+    int display_sync;         /* 1 = one game frame per screen refresh (60 Hz screens, VSync on) */
     int launcher_intros;      /* live intros behind the game picker */
     int minimap_pos;          /* 0 lower left, 1 lower right, 2 upper right, 3 upper left */
     int minimap_threats;      /* show enemy air defences near the helicopter */

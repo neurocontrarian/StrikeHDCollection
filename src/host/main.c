@@ -2251,6 +2251,45 @@ static void pump_audio(int keep)
     SDL_SetAudioStreamFrequencyRatio(aud, ratio);
 }
 
+/* ---------------- frame pacing ----------------
+ * The Genesis runs at 59.92 Hz and most screens at 60 Hz. Paced by the clock,
+ * the game shows one frame twice about every 12 s, and the scroll stutters
+ * while the two clocks are nearly in step. Display sync runs one game frame
+ * per screen refresh instead (the game 0.13% faster; the audio rate control
+ * in pump_audio absorbs it). It needs VSync to really wait for the refresh:
+ * the time between presents is watched, and the clock takes over when the
+ * screen isn't near 60 Hz, VSync doesn't wait, or frames are missed. */
+static int sync_on;                         /* pacing by the display now */
+
+static void pacing_update(uint64_t now)
+{
+    static uint64_t last;
+    static int fast, slow, good, cooldown;
+    uint64_t dt = last ? now - last : 0;
+    last = now;
+    if (!dt) return;
+    if (dt < 14500000ull) fast++;           /* under 69 Hz: not waiting for a 60 Hz refresh */
+    else if (dt > 19000000ull) slow++;      /* a refresh missed */
+    else good++;
+    if (sync_on && fast >= 4) {             /* VSync stopped waiting: leave at once */
+        sync_on = 0; cooldown = 300;
+        SDL_Log("pacing: display sync off (presents not waiting for the refresh)");
+    }
+    if (fast + slow + good < 120) return;
+    if (cooldown > 0) cooldown -= 120;
+    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
+    float hz = dm ? dm->refresh_rate : 0.0f;
+    int want = g_set.display_sync && g_set.vsync && (hz == 0.0f || (hz > 59.0f && hz < 61.0f));
+    if (sync_on && (!want || slow > 12)) {
+        sync_on = 0; cooldown = 600;
+        SDL_Log("pacing: display sync off (%s)", want ? "missed refreshes" : "setting, VSync or refresh rate");
+    } else if (!sync_on && want && cooldown <= 0 && fast == 0 && slow <= 2) {
+        sync_on = 1;
+        SDL_Log("pacing: display sync on (%.2f Hz)", hz);
+    }
+    fast = slow = good = 0;
+}
+
 static void handle_event(const SDL_Event *e)
 {
     if (e->type == SDL_EVENT_KEY_DOWN && !e->key.repeat && lab_key(e->key.scancode)) return;
@@ -3312,6 +3351,11 @@ static void run_game(void)
             pump_audio(0);
             rewind_record();
             if (shot_every && g_frame % shot_every == 0) save_bmp(shot_dir);
+        } else if (sync_on && !ff) {
+            cpu_run_frame();                     /* one game frame per refresh */
+            pump_audio(1);
+            rewind_record();
+            next = now + FRAME_NS;               /* the clock picks up from here if sync stops */
         } else {
             int ran = 0, maxrun = ff ? g_set.ff_speed : 4;
             if (now > next && now - next > 250000000ull) next = now;      /* resync after a stall */
@@ -3328,6 +3372,7 @@ static void run_game(void)
         if (!halted) scene_frame();
         present();
         after_present();
+        if (!max_ticks) pacing_update(SDL_GetTicksNS());
         disp_frames++;
         if (now - fps_t0 >= 1000000000ull) {
             double dt = (now - fps_t0) / 1e9;
@@ -3337,8 +3382,8 @@ static void run_game(void)
         }
         if (max_ticks) continue;
         if (!halted) {
-            uint64_t t = SDL_GetTicksNS();
-            if (t < next && next - t > 2000000) SDL_DelayNS(next - t - 1000000);
+            uint64_t t = SDL_GetTicksNS();               /* (display sync: present() already waited) */
+            if (!sync_on && t < next && next - t > 2000000) SDL_DelayNS(next - t - 1000000);
         } else {
             SDL_Delay(8);
         }

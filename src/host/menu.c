@@ -45,6 +45,7 @@ static const char *const SCANS[] = { "Off", "Light", "Medium", "Strong" };
 static const char *const STRAFE[] = { "Original", "Fast (1.5x)", "Faster (2x)" };
 static const char *const DIFFICULTY[] = { "Recruit", "Remastered", "Original" };
 static const char *const SPEED[] = { "Smooth (no slowdown)", "Original (with slowdown)" };
+static const char *const PACING[] = { "Exact (59.92 Hz)", "Match Display" };
 static const char *const FLICKER[] = { "Off (all sprites shown)", "Original (flicker)" };
 
 static const menu_host *H;
@@ -95,6 +96,7 @@ static item tab_system[] = {
     { IT_CHOICE, "Strafe Speed", "Desert Strike: how fast the helicopter sidesteps while strafing (A held, or the strafe button). Original is the Genesis speed, about a fifth of full flight.", &g_set.strafe_speed, STRAFE, 3 },
     { IT_CHOICE, "Right Stick Strafe", "Desert Strike: push the right stick left or right to strafe that way (twin-stick style). Off frees the right stick for your own bindings.", &g_set.rstick_strafe, OFF_ON, 2 },
     { IT_CHOICE, "Game Speed", "Smooth gives the game a faster CPU so busy scenes never slow down. Original matches the console.", &g_set.authentic_speed, SPEED, 2 },
+    { IT_CHOICE, "Frame Pacing", "Match Display shows one game frame per screen refresh on a 60 Hz screen with VSync on: smoother scrolling, the game 0.1% faster. Exact keeps the Genesis's 59.92 Hz and shows a frame twice about every 12 seconds.", &g_set.display_sync, PACING, 2 },
     { IT_SLIDER, "Fast-Forward Speed", "Hold Tab or the right trigger to fast-forward.", &g_set.ff_speed, 0, 0, 2, 8, 1, "x" },
     { IT_CHOICE, "Rewind", "Hold the left trigger (Backspace) to rewind the last half minute or so.", &g_set.rewind, OFF_ON, 2 },
     { IT_CHOICE, "Autosave", "Saves when a mission starts and when an objective is completed (Load State, Auto 1-3).", &g_set.autosave, OFF_ON, 2 },
