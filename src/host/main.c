@@ -613,6 +613,8 @@ static void apply_edition(void)
     prev_music = g_set.amiga_music;
 }
 
+static const SDL_DisplayMode *display_mode(void);
+
 static void apply_settings(void)
 {
     apply_edition();
@@ -621,11 +623,11 @@ static void apply_settings(void)
     {   /* what the display really does (tearing, judder reports) */
         int vs = -9;
         SDL_GetRenderVSync(ren, &vs);
-        const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
+        const SDL_DisplayMode *dm = display_mode();
         int ww = 0, wh = 0;
         SDL_GetWindowSizeInPixels(win, &ww, &wh);
         SDL_Log("video: %s, display %dx%d @ %.2f Hz, window %dx%d (mode %d), renderer %s, vsync asked %d got %d",
-                SDL_GetCurrentVideoDriver(), dm ? dm->w : 0, dm ? dm->h : 0, dm ? dm->refresh_rate : 0.0f,
+                SDL_GetCurrentVideoDriver(), dm->w, dm->h, dm->refresh_rate,
                 ww, wh, g_set.window_mode, SDL_GetRendererName(ren), g_set.vsync, vs);
     }
     ropts.sprite_limits = g_set.sprite_flicker;
@@ -3769,7 +3771,7 @@ int main(int argc, char **argv)
     else if (g_set.renderer == RENDERER_SOFTWARE) SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
     ren = win ? SDL_CreateRenderer(win, 0) : 0;
     if (win && !ren && (want_gl || g_set.renderer != RENDERER_AUTO)) {   /* chosen backend unavailable: let SDL pick */
-        SDL_Log("renderer: %s unavailable (%s), using automatic", g_set.renderer == RENDERER_OPENGL ? "opengl" : "software", SDL_GetError());
+        SDL_Log("renderer: %s unavailable (%s), using automatic", want_gl ? "opengl" : "software", SDL_GetError());
         SDL_ResetHint(SDL_HINT_RENDER_DRIVER);
         ren = SDL_CreateRenderer(win, 0);
     }

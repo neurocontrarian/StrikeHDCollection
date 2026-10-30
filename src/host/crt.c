@@ -122,12 +122,15 @@ static GLsync fence;
 static GLuint queries[NQ][MAX_PASSES + 1];
 static int q_next, q_pending[NQ];           /* passes timed in that set (0: free) */
 static float gpu_ms, pass_ms[MAX_PASSES];   /* smoothed */
-static uint64_t gpu_ms_t;                  /* when gpu_ms was last measured */
+static uint64_t gpu_ms_t;                  /* when gpu_ms was last measured (0: never) */
+static uint64_t drawn_t;                   /* when the filter last drew (a picture or the same again) */
 static char look_desc[96];
 
 const char *crt_why_not(void) { return why; }
 const char *crt_describe(void) { return look_desc; }
-float crt_gpu_ms(void) { return SDL_GetTicksNS() - gpu_ms_t < 1000000000ull ? gpu_ms : -1.0f; }
+/* the last measured time while the filter is drawing (the same picture again
+ * costs nothing and measures nothing, so a pause keeps the last value) */
+float crt_gpu_ms(void) { return gpu_ms_t && SDL_GetTicksNS() - drawn_t < 1000000000ull ? gpu_ms : -1.0f; }
 
 int crt_pass_times(char *buf, size_t n)
 {
@@ -381,7 +384,11 @@ static int load_preset(const char *path)
 
     /* parameters: the shaders' defaults, then the preset's values */
     P.np = 0;
-    for (int i = 0; i < n; i++) scan_pragmas(embedded_file_find(P.p[i].d.shader, NULL));
+    for (int i = 0; i < n; i++) {
+        const char *src = embedded_file_find(P.p[i].d.shader, NULL);
+        if (!src) { SDL_Log("crt: missing %s", P.p[i].d.shader); return 0; }
+        scan_pragmas(src);
+    }
     char list[2048];
     if (preset_get(text, "parameters", list, sizeof list)) {
         for (char *s = strtok(list, ";"); s; s = strtok(NULL, ";")) {
@@ -513,16 +520,18 @@ int crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
 
     /* the same picture with the same options: it is already in out_tex
      * (menus, pause, a refresh shown twice): no GPU work */
-    struct { uint64_t picture; crt_look look; int w, h, vw, vh, console; char key[128]; } now;
-    static struct { uint64_t picture; crt_look look; int w, h, vw, vh, console; char key[128]; } last;
+    typedef struct { uint64_t picture; crt_look look; int w, h, vw, vh, console; char key[128]; } frame_key;
+    static frame_key last;          /* what out_tex holds; zeroed when it holds nothing */
+    frame_key now;
     memset(&now, 0, sizeof now);
     now.picture = picture; now.look = *look; now.w = w; now.h = h; now.vw = vw; now.vh = vh; now.console = console;
     SDL_strlcpy(now.key, key, sizeof now.key);
+    drawn_t = SDL_GetTicksNS();
     if (out_tex && !memcmp(&now, &last, sizeof now)) {
         SDL_RenderTexture(R, out_tex, NULL, &d);
         return 1;
     }
-    memcpy(&last, &now, sizeof last);
+    memset(&last, 0, sizeof last);
 
     /* the output: an SDL target texture, drawn by SDL afterwards */
     if (!out_tex || out_w != vw || out_h != vh) {
@@ -667,5 +676,6 @@ int crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
     if (scissor) gl.Enable(GL_SCISSOR_TEST);
 
     SDL_RenderTexture(R, out_tex, NULL, &d);
+    last = now;
     return 1;
 }
