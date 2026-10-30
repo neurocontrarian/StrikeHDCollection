@@ -92,9 +92,14 @@ int settings_save(const char *path)
     FILE *f = fopen(path, "w");
     if (!f) return 0;
     fprintf(f, "# Desert Strike HD settings. Change these from the pause menu (Esc / Back).\n[settings]\n");
-#define X(n, lo, hi) fprintf(f, "%s = %d\n", #n, g_set.n);
-    FIELDS(X)
-#undef X
+    settings_write(f, "");
     fclose(f);
     return 1;
+}
+
+void settings_write(FILE *f, const char *prefix)
+{
+#define X(n, lo, hi) fprintf(f, "%s%s = %d\n", prefix, #n, g_set.n);
+    FIELDS(X)
+#undef X
 }

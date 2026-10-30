@@ -5,6 +5,8 @@
 #ifndef DS_SETTINGS_H
 #define DS_SETTINGS_H
 
+#include <stdio.h>
+
 /* Genesis: everything as on the Mega Drive. Amiga: every Amiga asset that
  * is available. Remaster: what the community preferred from each version
  * (docs/13-amiga-ultimate.md). Custom: the options set one by one. */
@@ -80,5 +82,6 @@ extern cheats_t g_cheat;
 void settings_defaults(settings_t *s);
 int  settings_load(const char *path);   /* 1 if the file existed */
 int  settings_save(const char *path);
+void settings_write(FILE *f, const char *prefix);   /* every setting, one "name = value" line each */
 
 #endif
