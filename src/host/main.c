@@ -2404,7 +2404,7 @@ static void diag_log(uint64_t now)
                 SDL_VERSIONNUM_MAJOR(SDL_GetVersion()), SDL_VERSIONNUM_MINOR(SDL_GetVersion()), SDL_VERSIONNUM_MICRO(SDL_GetVersion()),
                 SDL_GetCurrentVideoDriver(), SDL_GetRendererName(ren), SDL_GetNumLogicalCPUCores(), SDL_GetSystemRAM());
         fprintf(f, "# game: %s\n", game ? game->id : "none");
-        fprintf(f, "# graphics card monitor: %s\n", gstat.source ? gstat.source : "none (load, temperature and power unknown)");
+        fprintf(f, "# graphics card: NVML (NVIDIA) or amdgpu when available; -1 in the gpu columns is unknown\n");
         session_started = 1;
         memset(&logged, 0xFF, sizeof logged);   /* write the settings below */
     }
