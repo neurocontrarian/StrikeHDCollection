@@ -1346,7 +1346,7 @@ static void draw_game(int ow, int oh)
     static int crt_said;
     if (g_set.crt) {
         int console = vdp_display_width() <= 256 ? 3 : 2;   /* Lola Retro: Mega Drive H32 / H40 */
-        crt_look look = { g_set.crt, g_set.crt_flat, g_set.crt_quality, g_set.crt_glow, g_set.crt_wires, g_set.crt_antimoire, g_set.crt_dither, g_set.crt_mask };
+        crt_look look = { g_set.crt, g_set.crt_flat, g_set.crt_glow, g_set.crt_wires, g_set.crt_antimoire, g_set.crt_dither, g_set.crt_mask };
         if (crt_draw(&look, fb, VDP_MAX_W, fb_w, VDP_H, console, dst, g_frame)) {
             crt_said = 0;
             return;
@@ -1440,9 +1440,7 @@ static void draw_diagnostics(void)
         if (cms >= 0.0f && crt_pass_times(L[n] + 8, sizeof L[0] - 8)) { memcpy(L[n], "Passes: ", 8); col[n++] = ok; }
     }
     if (cms > 14.0f)
-        SDL_snprintf(H[nh++], sizeof H[0], "The CRT filter takes %.0f of the 16.7 ms a frame has: try %s.", cms,
-                     g_set.crt_quality == 0 ? "Settings > CRT > Quality: Lite (the same picture)" :
-                     g_set.crt_quality == 1 ? "Quality: Super Lite, or a lower resolution" : "a lower resolution or an RGB preset");
+        SDL_snprintf(H[nh++], sizeof H[0], "The CRT filter takes %.0f of the 16.7 ms a frame has: try a lower resolution or an RGB preset.", cms);
     if (hz > 0.0f && (hz < 59.0f || hz > 61.0f))
         SDL_snprintf(H[nh++], sizeof H[0], "The screen runs at %.0f Hz: the game is made for 60. Pick a 60 Hz mode.", hz);
     if (compositor[0] && g_set.window_mode != WIN_WINDOWED)

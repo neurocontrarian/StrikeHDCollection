@@ -31,7 +31,6 @@ typedef struct {
     int scanlines;            /* SCAN_* */
     int crt;                  /* CRT filter: 0 off, else a Lola Retro preset (crt.h) */
     int crt_flat;             /* 1 = flat screen, square corners */
-    int crt_quality;          /* 0 full, 1 lite (the same picture, less GPU time), 2 super lite */
     int crt_glow;             /* glass glow and room reflection (the halo around bright things) */
     int crt_wires;            /* a Trinitron's damper wires (the aperture grille presets) */
     int crt_antimoire;        /* mask on screen pixels, smoothed scanlines */

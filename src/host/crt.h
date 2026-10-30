@@ -18,12 +18,12 @@ int  crt_init(SDL_Renderer *ren);
 const char *crt_why_not(void);
 
 /* What the player picked. preset: 1 .. CRT_PRESET_COUNT - 1; flat: no
- * curvature; quality: 0 full, 1 lite, 2 super lite passes; glow: the glass glow and the room's
+ * curvature; glow: the glass glow and the room's
  * reflection; wires: a Trinitron's damper wires; antimoire: the mask on whole
  * screen pixels and smoothed scanlines; dither: 1-pixel dither patterns
  * blended on RGB and S-Video as composite would have; mask: the phosphor
  * mask as in the preset (0), at half strength (1) or off (2). */
-typedef struct { int preset, flat, quality, glow, wires, antimoire, dither, mask; } crt_look;
+typedef struct { int preset, flat, glow, wires, antimoire, dither, mask; } crt_look;
 
 /* Draw a w x h XRGB8888 frame (pitch in pixels) through a preset into dst.
  * console: Lola Retro's console timing id (2 Mega Drive H40, 3 H32).

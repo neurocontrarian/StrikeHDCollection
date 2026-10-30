@@ -124,11 +124,20 @@ if(DS_BUILD_HOST)
         src/host/rewind.c src/host/stats.c src/host/amiga.c src/host/sfxmix.c src/host/modplay.c
         src/host/amiga_vm.c src/host/gpumon.c src/host/crt.c ${CMAKE_BINARY_DIR}/lola_retro_files.c)
     # CRT filter: the Lola Retro GLSL presets, embedded in the program
-    file(GLOB_RECURSE DS_LOLA_FILES ${CMAKE_SOURCE_DIR}/third_party/lola-retro/*.glsl ${CMAKE_SOURCE_DIR}/third_party/lola-retro/*.glslp)
+    file(GLOB_RECURSE DS_LOLA_FILES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/third_party/lola-retro/*.glsl ${CMAKE_SOURCE_DIR}/third_party/lola-retro/*.glslp)
+    # the list itself is a dependency too, so a removed file also rebuilds the table
+    set(DS_LOLA_LIST ${CMAKE_BINARY_DIR}/lola_retro_files.list)
+    set(old_list "")
+    if(EXISTS ${DS_LOLA_LIST})
+        file(READ ${DS_LOLA_LIST} old_list)
+    endif()
+    if(NOT old_list STREQUAL "${DS_LOLA_FILES}")
+        file(WRITE ${DS_LOLA_LIST} "${DS_LOLA_FILES}")
+    endif()
     add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/lola_retro_files.c
         COMMAND ${CMAKE_COMMAND} -DDIR=${CMAKE_SOURCE_DIR}/third_party/lola-retro
             -DOUT=${CMAKE_BINARY_DIR}/lola_retro_files.c -P ${CMAKE_SOURCE_DIR}/cmake/embed_files.cmake
-        DEPENDS ${DS_LOLA_FILES} ${CMAKE_SOURCE_DIR}/cmake/embed_files.cmake
+        DEPENDS ${DS_LOLA_FILES} ${DS_LOLA_LIST} ${CMAKE_SOURCE_DIR}/cmake/embed_files.cmake
         COMMENT "Embedding the Lola Retro shaders")
     if(WIN32)
         list(APPEND DS_HOST_SOURCES res/desertstrikehd.rc)

@@ -6,17 +6,22 @@ on the game picture: a simulation of the whole analog chain (the Mega Drive's vi
 TV's decoder, the electron beam, the phosphor mask and the glass). Eight of its fifteen presets fit a
 Genesis: Consumer TV (Composite), Consumer TV (RGB SCART), Trinitron TV (S-Video), Old TV (RF Antenna),
 Studio Monitor (Composite), Studio Monitor (RGB), Commodore 1084S Monitor and CRT Projector. **Screen**
-picks curved or flat glass, **Quality** the full, lite or super lite passes (all in the CRT tab). Lite is the default: Lola Retro's
-own lite chain, the same picture as full (44-66 dB PSNR upstream) for less GPU time. Upstream ships it
-for RetroArch only; `third_party/lola-retro/README.md` says how its GLSL was generated.
+picks curved or flat glass.
+
+They run as Lola Retro's **lite** chain: the same picture as its full presets (44–66 dB PSNR upstream)
+for a fraction of the GPU time. The full chain cost an RTX 3090 four times the time at 4K for no visible
+gain, and the super lite chain gives up a little of the picture to save nothing more on a desktop GPU, so
+neither is offered.
 
 ## How it works
-- The shaders are Lola Retro's GLSL port for Kodi (`third_party/lola-retro`, unchanged, MIT), embedded in the
-  program at build time by `cmake/embed_files.cmake`.
+- The shaders are Lola Retro's GLSL port for Kodi (`third_party/lola-retro`, MIT), embedded in the program
+  at build time by `cmake/embed_files.cmake`. Upstream generates the lite chain for RetroArch only; its
+  GLSL was generated with upstream's own tool (see `third_party/lola-retro/README.md`).
 - `src/host/crt.c` is a small RetroArch-style `.glslp` runner: passes, scale types, aliases, float
   framebuffers, `#pragma parameter` defaults and the preset's values. Each pass draws a quad into a
   framebuffer; the last pass draws into an SDL target texture that SDL then puts on screen, so the HUD,
-  minimap and menus are drawn on top, unfiltered, as before.
+  minimap and menus are drawn on top, unfiltered, as before. The same game frame with the same options is
+  not filtered again (menus, pause).
 - It needs the OpenGL renderer: the GL calls go between SDL's (`SDL_FlushRenderer`, available since SDL
   3.2.0). With Display → Renderer on Automatic, OpenGL is chosen at startup while the filter is on (on
   Windows, Automatic is otherwise Direct3D). OpenGL 3.3 is the minimum.
@@ -25,24 +30,22 @@ for RetroArch only; `third_party/lola-retro/README.md` says how its GLSL was gen
   (3 for H32 screens), because Auto guesses from the frame size and a widescreen frame isn't 320 wide; and
   Picture height (`LR_FILL`) 1, so the 224 lines fill the picture height and the picture covers the same
   area as without the filter (the HUD and minimap are placed on that area).
+- At most one filtered frame is in flight (a fence waited for before the next one): with a GPU slower than
+  the game, frames would otherwise pile up and the picture lag.
 
 ## Options over the presets
-The presets stay as Lola Retro made them; three menu options change one or two parameters each:
+The presets stay as Lola Retro made them; these options (CRT tab) change one or two parameters each:
 
 | Option | Default | Parameters |
 |---|---|---|
-| CRT Glass Glow | On | Off: `LR_GLOW` 0 (the halo the glass spreads around bright things) and `LR_REFLECT` 0 (the room's reflection) |
-| CRT Damper Wires | Off | On keeps `LR_DAMPER` as in the preset: the two wires that hold a Trinitron's aperture grille, at about 1/3 and 2/3 of the height (Trinitron and studio monitor presets; lola-retro issue #16). Off: 0 |
-| CRT Anti-Moire | On | `LR_MASK_PX` 1 (the mask on whole screen pixels, lola-retro issue #11) and `LR_SMOOTH` 1 (each screen pixel shows the light averaged over its height): no moire bands or dark patches where the mask or the lines beat against the screen's pixels. Off: the mask at the tube's size |
-
-| CRT Dither Blend | On | `LR_DBLEND_AUTO` 1: on the RGB and S-Video presets, 1-pixel dither patterns (water, sand, shadows) are blended as composite would have, without its rainbow. Off: as in the preset (0) |
-| CRT Mask | As the Tube | Half: `LR_MASK_STR` × 0.5; Off: 0. Below 4K the mask is finer than the screen's pixels and shimmers on moving detail (water) |
+| Glass Glow | On | Off: `LR_GLOW` 0 (the halo the glass spreads around bright things) and `LR_REFLECT` 0 (the room's reflection) |
+| Damper Wires | Off | On keeps `LR_DAMPER` as in the preset: the two wires that hold a Trinitron's aperture grille, at about 1/3 and 2/3 of the height (Trinitron and studio monitor presets; lola-retro issue #16). Off: 0 |
+| Anti-Moire | On | `LR_MASK_PX` 1 (the mask on whole screen pixels, lola-retro issue #11) and `LR_SMOOTH` 1 (each screen pixel shows the light averaged over its height): no moire bands or dark patches where the mask or the lines beat against the screen's pixels. Off: the mask at the tube's size |
+| Dither Blend | On | `LR_DBLEND_AUTO` 1: on the RGB and S-Video presets, 1-pixel dither patterns (water, sand, shadows) are blended as composite would have, without its rainbow. Off: as in the preset (0) |
+| Mask | As the Tube | Half: `LR_MASK_STR` × 0.5; Off: 0. Below 4K the mask is finer than the screen's pixels and shimmers on moving detail (water) |
 
 With the filter on, Scaling: Integer Only is ignored (the tube resamples the picture anyway), so the
 picture fills the same area as with the other scaling modes.
-
-The first tester (Batocera, RTX) saw a horizontal line at about 3/5 of the height (the lower damper wire),
-the glass halo, and dark patches on some landscapes (most likely moire), hence these defaults.
 
 ## Widescreen
 Kodi's port draws the tube the shape of the area it is given (it doesn't define `LR_FIT_43`), and the TV
@@ -51,56 +54,28 @@ model spreads the source line across the tube's width. So a widescreen frame (43
 already pillarboxed inside the frame by the host, so the tube keeps its shape.
 
 The encoder's absolute width is meant for a 320-pixel line (1280 samples, 4 a pixel): a wider frame gets
-it in proportion, so it keeps as many samples per pixel. The beam's 8192 stays as it is: it is already
-more than two samples per screen pixel at 4K (scaling it too made the heaviest pass a third slower).
+it in proportion, so it keeps as many samples per pixel.
 
 ## Performance
-Measured with GPU timestamps around each pass, read a few frames later so nothing stalls: Settings →
-Display → Show FPS → Diagnostics shows them and writes them to `diagnostics.log` (the tables below were
-measured earlier with `glFinish` around each pass).
+Settings → Display → Show FPS → Diagnostics shows the GPU time of each pass (GPU timestamps read a few
+frames later, so nothing stalls) and writes it to `diagnostics.log` in the settings folder.
 
-Intel UHD Graphics 630 (i5-10500T, Mesa 26 iris, GPU at its 1150 MHz maximum), ms of GPU time a frame,
-curved; 16:9 is 1920×1067 (widescreen 16:9), 4:3 is 1440×1080:
+RTX 3090 on Batocera, 3840×2133 (4K, 16:9), RGB SCART: 4.5 ms a frame (crt-lite 2.9, decode 1.2) with the
+card at about 510 MHz, 38% load and 62 W. The full chain took 12.4 ms (its CRT pass alone 12.1, most likely
+its reads of the 8192-wide beam texture: 15 MB, more than the card's 6 MB L2), 76% load and 310 W at
+1970 MHz.
 
-| Preset | Full 16:9 | Super lite 16:9 | Full 4:3 | Super lite 4:3 | Super lite 1280×711 |
-|---|---|---|---|---|---|
-| Consumer TV (Composite) | 148 | 65 | 111 | 48 | 43 |
-| Consumer TV (RGB SCART) | 99 | 44 | 74 | 34 | 23 |
-| Trinitron TV (S-Video) | 137 | 55 | 99 | 39 | |
-| Old TV (RF Antenna) | 199 | 76 | 158 | 53 | |
-| Studio Monitor (Composite) | 121 | 54 | 90 | 40 | |
-| Studio Monitor (RGB) | 95 | 41 | 72 | 31 | |
-| Commodore 1084S Monitor | 100 | 47 | 75 | 36 | |
-| CRT Projector | 87 | 38 | 66 | 29 | 20 |
+Intel UHD 630 (Mesa 26), 1920×1067: 72 ms a frame (crt-lite 47.5, decode 12.1, beam 8.9): too slow for 60 Hz.
+Intel's compiler spills registers on the large passes (`INTEL_DEBUG=perf`); Lola Retro's README gives
+2.2–3.4 ms for lite on an Intel Core Ultra 5 225U, so recent integrated graphics should have room to spare.
 
-None reaches the 16.7 ms of a 60 Hz frame on this GPU. Per pass (full composite, 16:9): encode 16 ms,
-decode 42, beam 51, crt 36, present 4. Intel's compiler spills registers on two of the large passes
-(`INTEL_DEBUG=perf`: "fragment shader triggered register spilling", SIMD16 failed); forcing SIMD16
-(`INTEL_SIMD_DEBUG=fs16`) gains under 10%, half-float targets nothing (the passes are ALU-bound). For
-comparison, Lola Retro's README gives 5.4–6.6 ms (full) and 1.7–2.5 ms (super lite) on an Intel Core
-Ultra 5 225U with Vulkan at 1600×1200, so recent integrated and discrete GPUs should have room to spare.
-
-At most one filtered frame is in flight (a fence waited for before the next one): with a GPU slower than
-the game, frames would otherwise pile up (headless, where nothing else waits for the GPU, this showed as a
-blank window). A GPU that slow therefore slows the game down.
-
-The shaders compile once per preset and are cached by the driver: the first start took 16 s on Mesa for
-the full composite preset, later ones 0.3 to 1.6 s.
+The shaders compile once per preset and are cached by the driver (the first start took several seconds on
+Mesa, later ones under a second).
 
 ## Tested on
-- Batocera 44-dev, X11 (openbox + picom), NVIDIA RTX 3090 (driver 610.57), 1920×1080 at 60 Hz: the full
-  RGB SCART preset takes 5–6 ms of GPU time. In fullscreen a torn band stayed at a fixed height (seen only
-  in motion; gone in a window and with the super lite passes). VSync was on and honoured; the cause was
-  picom, Batocera's compositor, copying the window on its own clock: with picom stopped the band is gone.
-  A Batocera launcher therefore stops picom while the game runs and starts it again afterwards.
-- Intel UHD 630 (Mesa): too slow, see Performance.
-
-### Batocera, RTX 3090, 3840x2133 (4K), per pass
-Full RGB SCART, from the diagnostics log: crt 12.07 ms of 12.5 (the next largest, beam, 0.17 ms); GPU load
-76%, 306 W at 1965 MHz. Super lite: 1.4 ms at about 1100 MHz (4 ms when the card drops to 345-520 MHz).
-On the Intel UHD 630 the full and super lite CRT passes cost about the same (44 and 41 ms at 1080p, compute
-bound), so on the RTX the full pass's cost is most likely its reads of the 8192-wide beam texture (15 MB,
-more than the 6 MB L2), where lite and super lite read a beam as wide as the screen.
-
-Intel UHD 630, 1920x1067, RGB SCART flat (ms): full 100 (beam 37.5, crt 44.2, decode 12.1); lite 71.7
-(beam 8.9, crt-lite 47.5, decode 12.1); super lite 55.7 (crt 40.7, decode 6.1, beam 5.6).
+- Batocera 44-dev, X11 (openbox + picom), NVIDIA RTX 3090 (driver 610.57), 1080p and 4K at 60 Hz. In
+  fullscreen a torn band stayed at a fixed height (seen only in motion, gone in a window), with sound cuts:
+  VSync was on and honoured; the cause was picom, Batocera's compositor, copying the window on its own
+  clock. A Batocera launcher therefore stops picom while the game runs and starts it again afterwards.
+  Diagnostics shows a running compositor.
+- Intel UHD 630 (Mesa): runs, too slow for full speed.

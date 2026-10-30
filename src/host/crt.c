@@ -411,9 +411,7 @@ int crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
     if (vw < 1 || vh < 1) return 0;
 
     char key[128];
-    static const char *const qdir[3] = { "", "lite/", "super-lite/" };
-    SDL_snprintf(key, sizeof key, "%s%s/%s.glslp", qdir[look->quality > 2 ? 2 : look->quality < 0 ? 0 : look->quality],
-                 look->flat ? "flat" : "curved", preset_file[preset]);
+    SDL_snprintf(key, sizeof key, "lite/%s/%s.glslp", look->flat ? "flat" : "curved", preset_file[preset]);
     if (strcmp(key, P.key)) {
         SDL_FlushRenderer(R);
         SDL_strlcpy(P.key, key, sizeof P.key);
@@ -546,8 +544,7 @@ int crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
         q_next = (q_next + 1) % NQ;
         gl.QueryCounter(queries[q_this][0], GL_TIMESTAMP);
     }
-    SDL_snprintf(look_desc, sizeof look_desc, "%s %s %s, %dx%d", crt_names[preset],
-                 look->flat ? "flat" : "curved", look->quality == 0 ? "full" : look->quality == 1 ? "lite" : "super lite", vw, vh);
+    SDL_snprintf(look_desc, sizeof look_desc, "%s %s, %dx%d", crt_names[preset], look->flat ? "flat" : "curved", vw, vh);
 
     static const GLfloat mvp[16] = { 2, 0, 0, 0,  0, 2, 0, 0,  0, 0, -1, 0,  -1, -1, 0, 1 };
     int prev_w = w, prev_h = h;

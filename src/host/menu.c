@@ -44,7 +44,6 @@ static const char *const WIDE[] = { "Off (4:3)", "16:10", "16:9", "21:9", "32:9"
 static const char *const SCALING[] = { "Sharp", "Integer Only", "Smooth", "Pixelated" };
 static const char *const SCANS[] = { "Off", "Light", "Medium", "Strong" };
 static const char *const CRTSHAPE[] = { "Curved", "Flat" };
-static const char *const CRTQUALITY[] = { "Full", "Lite", "Super Lite" };
 static const char *const CRTMASK[] = { "As the Tube", "Half", "Off" };
 static const char *const STRAFE[] = { "Original", "Fast (1.5x)", "Faster (2x)" };
 static const char *const DIFFICULTY[] = { "Recruit", "Remastered", "Original" };
@@ -84,7 +83,6 @@ static item tab_picture[] = {
 static item tab_crt[] = {
     { IT_CHOICE, "Filter", "Lola Retro: the picture through a real CRT, from the console's video signal to the glass. Fills the screen, widescreen included. Needs OpenGL: with Renderer on Automatic it is chosen at the next start.", &g_set.crt, crt_names, CRT_PRESET_COUNT },
     { IT_CHOICE, "Screen", "Curved glass with rounded corners, or a flat screen.", &g_set.crt_flat, CRTSHAPE, 2 },
-    { IT_CHOICE, "Quality", "Lite gives the same picture as Full for a fraction of the graphics card's time (recommended). Super Lite gives up a little of the picture, for weak graphics chips.", &g_set.crt_quality, CRTQUALITY, 3 },
     { IT_CHOICE, "Glass Glow", "The halo of light the glass spreads around bright things, and the room's reflection on it. Off keeps the picture crisp.", &g_set.crt_glow, OFF_ON, 2 },
     { IT_CHOICE, "Damper Wires", "Trinitron and studio monitors: the thin horizontal wires that hold the aperture grille. Real sets had them; Off removes the line.", &g_set.crt_wires, OFF_ON, 2 },
     { IT_CHOICE, "Anti-Moire", "Lines the mask up with your screen's pixels and smooths the scanlines, so no dark bands or patches appear (moire). Off: the mask at the tube's real size.", &g_set.crt_antimoire, OFF_ON, 2 },
