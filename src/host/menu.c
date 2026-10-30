@@ -45,6 +45,7 @@ static const char *const SCALING[] = { "Sharp", "Integer Only", "Smooth", "Pixel
 static const char *const SCANS[] = { "Off", "Light", "Medium", "Strong" };
 static const char *const CRTSHAPE[] = { "Curved", "Flat" };
 static const char *const CRTQUALITY[] = { "Full", "Lite" };
+static const char *const CRTMASK[] = { "As the Tube", "Half", "Off" };
 static const char *const STRAFE[] = { "Original", "Fast (1.5x)", "Faster (2x)" };
 static const char *const DIFFICULTY[] = { "Recruit", "Remastered", "Original" };
 static const char *const SPEED[] = { "Smooth (no slowdown)", "Original (with slowdown)" };
@@ -73,6 +74,8 @@ static item tab_picture[] = {
     { IT_CHOICE, "CRT Glass Glow", "The halo of light the glass spreads around bright things, and the room's reflection on it. Off keeps the picture crisp.", &g_set.crt_glow, OFF_ON, 2 },
     { IT_CHOICE, "CRT Damper Wires", "Trinitron and studio monitors: the thin horizontal wires that hold the aperture grille. Real sets had them; Off removes the line.", &g_set.crt_wires, OFF_ON, 2 },
     { IT_CHOICE, "CRT Anti-Moire", "Lines the mask up with your screen's pixels and smooths the scanlines, so no dark bands or patches appear (moire). Off: the mask at the tube's real size.", &g_set.crt_antimoire, OFF_ON, 2 },
+    { IT_CHOICE, "CRT Dither Blend", "The game's artists drew water, shadows and sand with 1-pixel dither patterns that a composite TV blended. On blends them on the RGB and S-Video presets too (no shimmer or moire on water); Off keeps them sharp.", &g_set.crt_dither, OFF_ON, 2 },
+    { IT_CHOICE, "CRT Mask", "The phosphor dots or stripes. Below 4K they are finer than your screen can show and can shimmer on moving water or sand: Half or Off calms it (the scanlines and the glass stay).", &g_set.crt_mask, CRTMASK, 3 },
     { IT_CHOICE, "Sprite Flicker", "The console could show only 20 sprites per line; Off draws them all.", &g_set.sprite_flicker, FLICKER, 2 },
     { IT_CHOICE, "Status HUD", "Shows armor, fuel, load and lives while flying.", &g_set.status_hud, OFF_ON, 2 },
     { IT_CHOICE, "HUD Position", "Which corner the status HUD sits in. If the minimap is in the same corner, it moves out of the way.", &g_set.hud_pos, HUDPOS, 4 },

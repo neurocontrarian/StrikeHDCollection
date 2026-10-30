@@ -467,6 +467,11 @@ int crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
     set_param("LR_FILL", 1);
     if (!look->glow) { set_param("LR_GLOW", 0); set_param("LR_REFLECT", 0); }
     if (!look->wires) set_param("LR_DAMPER", 0);
+    if (look->dither) set_param("LR_DBLEND_AUTO", 1);
+    if (look->mask) {   /* below 4K a real mask is finer than the screen can show */
+        int ms = param_index("LR_MASK_STR", 0);
+        if (ms >= 0) P.pval[ms] = look->mask == 1 ? P.pdef[ms] * 0.5f : 0.0f;
+    }
     if (look->antimoire) {
         set_param("LR_MASK_PX", 1);     /* auto: whole screen pixels nearest the preset's tube */
         set_param("LR_SMOOTH", 1);      /* each pixel shows the light averaged over its height */
