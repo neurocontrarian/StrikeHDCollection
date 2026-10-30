@@ -662,7 +662,7 @@ typedef struct {                            /* audio over the last second, for D
     int clears, starved;                    /* queue thrown away (too full); queue nearly empty */
 } audio_stat;
 static audio_stat astat_now = { 1e9f, 0, 1, 0, 0 }, astat;
-static gpu_stat gstat;
+static gpu_stat gstat;                      /* graphics card, polled each second while Diagnostics is shown */
 static char compositor[32];                 /* a running X11 compositor (Linux), checked each second */
 
 /* Linux: is a compositing manager running? One that copies a fullscreen
@@ -692,7 +692,8 @@ static void find_compositor(void)
 #ifdef __linux__
     if (!SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11")) SDL_EnumerateDirectory("/proc/", find_compositor_cb, NULL);
 #endif
-}                      /* graphics card, polled each second while Diagnostics is shown */
+}
+
 static void diag_extra(char *buf, size_t n) { if (n) buf[0] = 0; }   /* more measures for the log line */
 
 static SDL_FRect game_dst;                   /* where the game image was drawn */
