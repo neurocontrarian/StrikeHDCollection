@@ -6,7 +6,9 @@ on the game picture: a simulation of the whole analog chain (the Mega Drive's vi
 TV's decoder, the electron beam, the phosphor mask and the glass). Eight of its fifteen presets fit a
 Genesis: Consumer TV (Composite), Consumer TV (RGB SCART), Trinitron TV (S-Video), Old TV (RF Antenna),
 Studio Monitor (Composite), Studio Monitor (RGB), Commodore 1084S Monitor and CRT Projector. **Screen**
-picks curved or flat glass, **Quality** the full or the super lite passes (all in the CRT tab).
+picks curved or flat glass, **Quality** the full, lite or super lite passes (all in the CRT tab). Lite is the default: Lola Retro's
+own lite chain, the same picture as full (44-66 dB PSNR upstream) for less GPU time. Upstream ships it
+for RetroArch only; `third_party/lola-retro/README.md` says how its GLSL was generated.
 
 ## How it works
 - The shaders are Lola Retro's GLSL port for Kodi (`third_party/lola-retro`, unchanged, MIT), embedded in the
@@ -92,3 +94,13 @@ the full composite preset, later ones 0.3 to 1.6 s.
   picom, Batocera's compositor, copying the window on its own clock: with picom stopped the band is gone.
   A Batocera launcher therefore stops picom while the game runs and starts it again afterwards.
 - Intel UHD 630 (Mesa): too slow, see Performance.
+
+### Batocera, RTX 3090, 3840x2133 (4K), per pass
+Full RGB SCART, from the diagnostics log: crt 12.07 ms of 12.5 (the next largest, beam, 0.17 ms); GPU load
+76%, 306 W at 1965 MHz. Super lite: 1.4 ms at about 1100 MHz (4 ms when the card drops to 345-520 MHz).
+On the Intel UHD 630 the full and super lite CRT passes cost about the same (44 and 41 ms at 1080p, compute
+bound), so on the RTX the full pass's cost is most likely its reads of the 8192-wide beam texture (15 MB,
+more than the 6 MB L2), where lite and super lite read a beam as wide as the screen.
+
+Intel UHD 630, 1920x1067, RGB SCART flat (ms): full 100 (beam 37.5, crt 44.2, decode 12.1); lite 71.7
+(beam 8.9, crt-lite 47.5, decode 12.1); super lite 55.7 (crt 40.7, decode 6.1, beam 5.6).
