@@ -16,6 +16,7 @@
  */
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <setjmp.h>
 #include <string.h>
@@ -664,48 +665,86 @@ static void toggle_fullscreen(void)
 /* ---------------- video ---------------- */
 static double fps_game, fps_disp;
 static int sync_on;                         /* frame pacing: by the display now (see pacing_update) */
-static struct {                             /* the last second of presents, for Show FPS: Diagnostics */
-    double avg_ms, max_ms;
-    int late, fast;                         /* refreshes missed; presents that didn't wait for one */
-} pstat;
-typedef struct {                            /* audio over the last second, for Diagnostics */
+
+/* Show FPS: Diagnostics. Measures over the last second, taken together each
+ * second (diag_second) so a log line describes one stretch of time. */
+typedef struct {
+    double sum_ms, max_ms;
+    int n, late, early;                     /* refreshes missed; presents that didn't wait for one */
+} present_stat;
+typedef struct {
     float min_ms, max_ms, ratio;
-    int clears, starved;                    /* queue thrown away (too full); queue nearly empty */
+    int n, clears, starved;                 /* queue thrown away (too full); queue nearly empty */
 } audio_stat;
-static audio_stat astat_now = { 1e9f, 0, 1, 0, 0 }, astat;
-static gpu_stat gstat;                      /* graphics card, polled each second while Diagnostics is shown */
-static char compositor[32];                 /* a running X11 compositor (Linux), checked each second */
+static present_stat pstat_now, pstat;
+static audio_stat astat_now = { 0, 0, 1, 0, 0, 0 }, astat;
+static gpu_stat gstat;                      /* graphics card */
+static int compositing;                     /* an X11 compositing manager is running (-1 unknown) */
 
-/* Linux: is a compositing manager running? One that copies a fullscreen
- * window on its own clock (picom with NVIDIA) tears it. */
-#ifdef __linux__
-static SDL_EnumerationResult SDLCALL find_compositor_cb(void *ud, const char *dir, const char *name)
+/* The display's refresh rate (0 if unknown) and whether it suits the game. */
+static const SDL_DisplayMode no_mode;
+static const SDL_DisplayMode *display_mode(void)
 {
-    static const char *const names[] = { "picom", "compton", "xcompmgr", "compiz", "kwin_x11", "xfwm4", "marco" };
-    (void)ud;
-    if (name[0] < '0' || name[0] > '9') return SDL_ENUM_CONTINUE;
-    char path[64], comm[32] = "";
-    SDL_snprintf(path, sizeof path, "%s%s/comm", dir, name);
-    FILE *f = fopen(path, "r");
-    if (!f) return SDL_ENUM_CONTINUE;
-    if (!fgets(comm, sizeof comm, f)) comm[0] = 0;
-    fclose(f);
-    comm[strcspn(comm, "\n")] = 0;
-    for (size_t i = 0; i < SDL_arraysize(names); i++)
-        if (!strcmp(comm, names[i])) { SDL_strlcpy(compositor, comm, sizeof compositor); return SDL_ENUM_SUCCESS; }
-    return SDL_ENUM_CONTINUE;
+    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
+    return dm ? dm : &no_mode;
 }
-#endif
+static float display_hz(void) { return display_mode()->refresh_rate; }
+static int near_60(float hz) { return hz > 59.0f && hz < 61.0f; }
 
-static void find_compositor(void)
+/* X11: a compositing manager owns the _NET_WM_CM_S<screen> selection (the
+ * standard way to ask). One that copies a fullscreen window on its own clock,
+ * picom with NVIDIA, tears it. */
+static int find_compositing(void)
 {
-    compositor[0] = 0;
 #ifdef __linux__
-    if (!SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11")) SDL_EnumerateDirectory("/proc/", find_compositor_cb, NULL);
+    static SDL_SharedObject *x11;
+    static unsigned long (*intern)(void *, const char *, int);
+    static unsigned long (*owner)(void *, unsigned long);
+    if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11")) return 0;
+    void *dpy = SDL_GetPointerProperty(SDL_GetWindowProperties(win), SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
+    if (!x11 && (x11 = SDL_LoadObject("libX11.so.6"))) {
+        *(void **)&intern = (void *)SDL_LoadFunction(x11, "XInternAtom");
+        *(void **)&owner = (void *)SDL_LoadFunction(x11, "XGetSelectionOwner");
+    }
+    if (!dpy || !intern || !owner) return -1;
+    char name[32];
+    SDL_snprintf(name, sizeof name, "_NET_WM_CM_S%d", (int)SDL_GetNumberProperty(SDL_GetWindowProperties(win), SDL_PROP_WINDOW_X11_SCREEN_NUMBER, 0));
+    return owner(dpy, intern(dpy, name, 0)) != 0;
+#else
+    return 0;
 #endif
 }
 
-static void diag_extra(char *buf, size_t n);   /* more measures for the log line */
+/* Hooks for more measures: lines in the Diagnostics box, fields in the log line. */
+static void box_line(SDL_FColor c, const char *fmt, ...);
+
+/* The CRT filter's lines: what runs, its GPU time a frame and each pass's. */
+static void diag_overlay_extra(SDL_FColor ok, SDL_FColor warn, SDL_FColor bad)
+{
+    if (!g_set.crt) return;
+    float ms = crt_gpu_ms();
+    char passes[400];
+    if (ms < 0.0f) {
+        box_line(warn, "CRT filter not running: %s", crt_why_not()[0] ? crt_why_not() : "no game picture yet");
+        return;
+    }
+    box_line(ms > 14.0f ? bad : ms > 10.0f ? warn : ok, "CRT %s   GPU %.1f ms a frame", crt_describe(), ms);
+    if (crt_pass_times(passes, sizeof passes)) box_line(ok, "Passes: %s", passes);
+    if (ms > 14.0f)
+        box_line(warn, "The CRT filter takes %.0f of the 16.7 ms a frame has: try a lower resolution or an RGB preset.", ms);
+}
+
+static void diag_extra(char *buf, size_t n)
+{
+    float ms = g_set.crt ? crt_gpu_ms() : -1.0f;
+    char passes[400];
+    if (!g_set.crt) SDL_snprintf(buf, n, "crt=off");
+    else if (ms < 0.0f) SDL_snprintf(buf, n, "crt=not-running");
+    else {
+        crt_pass_times(passes, sizeof passes);
+        SDL_snprintf(buf, n, "crt_gpu_ms=%.2f crt=\"%s\" passes_ms=\"%s\"", ms, crt_describe(), passes);
+    }
+}
 
 static SDL_FRect game_dst;                   /* where the game image was drawn */
 
@@ -1395,71 +1434,71 @@ static void draw_game(int ow, int oh)
     }
 }
 
+/* Lines of text in a box in the upper right corner (Show FPS). */
+#define OSD_LINES 16
+static struct { char text[OSD_LINES][192]; SDL_FColor col[OSD_LINES]; int n; } osd_box;
+
+static void box_line(SDL_FColor c, const char *fmt, ...)
+{
+    if (osd_box.n >= OSD_LINES) return;
+    va_list ap;
+    va_start(ap, fmt);
+    SDL_vsnprintf(osd_box.text[osd_box.n], sizeof osd_box.text[0], fmt, ap);
+    va_end(ap);
+    osd_box.col[osd_box.n++] = c;
+}
+
+static void box_draw(void)
+{
+    float lh = ui_line_h(UI_SMALL), w = 0;
+    for (int i = 0; i < osd_box.n; i++) { float t = ui_text_w(UI_SMALL, osd_box.text[i]); if (t > w) w = t; }
+    float x = 1260 - w - 16 > 0 ? 1260 - w - 16 : 0;   /* a line wider than the screen: the box from the left edge */
+    if (osd_box.n) ui_rect(x, 10, 1260 - x, lh * osd_box.n + 12, ui_rgba(0, 0, 0, 190));
+    for (int i = 0; i < osd_box.n; i++) ui_text_right(UI_SMALL, 1252, 16 + lh * i, osd_box.col[i], osd_box.text[i]);
+    osd_box.n = 0;
+}
+
 /* Show FPS: Diagnostics. What the display really does, with hints in plain
- * words: the questions a tearing or judder report needs answered. */
+ * words: the questions a tearing or judder report needs answered. Each check
+ * colours its line and adds its hint below the measures. */
 static void draw_diagnostics(void)
 {
     static const char *const wm[] = { "windowed", "borderless fullscreen", "exclusive fullscreen" };
-    char L[15][192], H[8][160];
-    SDL_FColor col[15];
-    int n = 0, nh = 0;
-    SDL_FColor ok = ui_rgba(160, 230, 140, 255), warn = ui_rgba(250, 200, 80, 255), bad = ui_rgba(250, 110, 90, 255);
-    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
-    float hz = dm ? dm->refresh_rate : 0.0f;
+    const SDL_FColor ok = ui_rgba(160, 230, 140, 255), warn = ui_rgba(250, 200, 80, 255), bad = ui_rgba(250, 110, 90, 255);
+    const SDL_DisplayMode *dm = display_mode();
+    float hz = dm->refresh_rate;
     int ww = 0, wh = 0, vs = -9;
     SDL_GetWindowSizeInPixels(win, &ww, &wh);
     SDL_GetRenderVSync(ren, &vs);
+    int odd_hz = hz > 0.0f && !near_60(hz);
+    int comp = compositing > 0 && g_set.window_mode != WIN_WINDOWED;
+    int early = g_set.vsync && pstat.early > 2, late = pstat.late > 1;
+    int audio = astat.clears || astat.starved > 2, busy = gstat.load > 90;
 
-    SDL_snprintf(L[n], sizeof L[0], "Game %.1f fps   Display %.1f fps", fps_game, fps_disp);
-    col[n++] = ok;
-    SDL_snprintf(L[n], sizeof L[0], "%s / %s   screen %dx%d @ %.2f Hz   window %dx%d, %s",
-                 SDL_GetCurrentVideoDriver(), SDL_GetRendererName(ren), dm ? dm->w : 0, dm ? dm->h : 0, hz,
-                 ww, wh, wm[g_set.window_mode < 3 ? g_set.window_mode : 0]);
-    col[n++] = hz > 0.0f && (hz < 59.0f || hz > 61.0f) ? warn : ok;
-    SDL_snprintf(L[n], sizeof L[0], "VSync %s (driver: %s)   Pacing: %s   Compositor: %s", g_set.vsync ? "on" : "off",
-                 vs == 1 ? "on" : vs == 0 ? "off" : "?", sync_on ? "one game frame per refresh" : "game clock (59.92 Hz)",
-                 compositor[0] ? compositor : "none");
-    col[n++] = compositor[0] && g_set.window_mode != WIN_WINDOWED ? warn : ok;
-    SDL_snprintf(L[n], sizeof L[0], "Frame time %.1f ms avg, %.1f max   late %d/s   early %d/s",
-                 pstat.avg_ms, pstat.max_ms, pstat.late, pstat.fast);
-    col[n++] = pstat.late > 1 || (g_set.vsync && pstat.fast > 2) ? bad : ok;
-    SDL_snprintf(L[n], sizeof L[0], "Audio queue %.0f-%.0f ms   rate x%.4f   cut %d/s   starved %d/s",
-                 astat.min_ms > 1e8f ? 0.0f : astat.min_ms, astat.max_ms, astat.ratio, astat.clears, astat.starved);
-    col[n++] = astat.clears || astat.starved > 2 ? bad : ok;
-    if (gstat.source) {
-        SDL_snprintf(L[n], sizeof L[0], "Graphics card: load %d%%   %d C   %d W   fan %d%%   %d MHz",
-                     gstat.load, gstat.temp, gstat.power, gstat.fan, gstat.clock);
-        col[n++] = gstat.load > 90 ? bad : gstat.load > 70 ? warn : ok;
-    }
+    box_line(ok, "Game %.1f fps   Display %.1f fps", fps_game, fps_disp);
+    box_line(odd_hz ? warn : ok, "%s / %s   screen %dx%d @ %.2f Hz   window %dx%d, %s",
+             SDL_GetCurrentVideoDriver(), SDL_GetRendererName(ren), dm->w, dm->h, hz, ww, wh,
+             wm[g_set.window_mode < 3 ? g_set.window_mode : 0]);
+    box_line(comp ? warn : ok, "VSync %s (driver: %s)   Pacing: %s   Compositor: %s", g_set.vsync ? "on" : "off",
+             vs == 1 ? "on" : vs == 0 ? "off" : "?", sync_on ? "one game frame per refresh" : "game clock (59.92 Hz)",
+             compositing > 0 ? "running" : compositing < 0 ? "unknown" : "none");
+    box_line(late || early ? bad : ok, "Frame time %.1f ms avg, %.1f max   late %d/s   early %d/s",
+             pstat.n ? pstat.sum_ms / pstat.n : 0.0, pstat.max_ms, pstat.late, pstat.early);
+    box_line(audio ? bad : ok, "Audio queue %.0f-%.0f ms   rate x%.4f   cut %d/s   starved %d/s",
+             astat.min_ms, astat.max_ms, astat.ratio, astat.clears, astat.starved);
+    if (gstat.source)
+        box_line(busy ? bad : gstat.load > 70 ? warn : ok, "Graphics card: load %d%%   %d C   %d W   fan %d%%   %d MHz",
+                 gstat.load, gstat.temp, gstat.power, gstat.fan, gstat.clock);
+    diag_overlay_extra(ok, warn, bad);
 
-    float cms = g_set.crt ? crt_gpu_ms() : -1.0f;
-    if (g_set.crt) {
-        if (cms >= 0.0f) SDL_snprintf(L[n], sizeof L[0], "CRT %s   GPU %.1f ms a frame", crt_describe(), cms);
-        else SDL_snprintf(L[n], sizeof L[0], "CRT filter not running: %s", crt_why_not()[0] ? crt_why_not() : "no game picture yet");
-        col[n++] = cms < 0.0f ? warn : cms > 14.0f ? bad : cms > 10.0f ? warn : ok;
-        if (cms >= 0.0f && crt_pass_times(L[n] + 8, sizeof L[0] - 8)) { memcpy(L[n], "Passes: ", 8); col[n++] = ok; }
-    }
-    if (cms > 14.0f)
-        SDL_snprintf(H[nh++], sizeof H[0], "The CRT filter takes %.0f of the 16.7 ms a frame has: try a lower resolution or an RGB preset.", cms);
-    if (hz > 0.0f && (hz < 59.0f || hz > 61.0f))
-        SDL_snprintf(H[nh++], sizeof H[0], "The screen runs at %.0f Hz: the game is made for 60. Pick a 60 Hz mode.", hz);
-    if (compositor[0] && g_set.window_mode != WIN_WINDOWED)
-        SDL_snprintf(H[nh++], sizeof H[0], "A compositor (%s) is running: it can tear the fullscreen picture. Stop it while playing.", compositor);
-    if (g_set.vsync && pstat.fast > 2)
-        SDL_snprintf(H[nh++], sizeof H[0], "Frames don't wait for the screen: tearing likely (a compositor, or the driver ignores VSync).");
-    if (pstat.late > 1)
-        SDL_snprintf(H[nh++], sizeof H[0], "Frames miss the screen's refresh: the computer or the graphics card is too slow for these settings.");
-    if (!g_set.vsync)
-        SDL_snprintf(H[nh++], sizeof H[0], "VSync is off: turn it on (Display) for smooth, tear-free motion.");
-    if (gstat.load > 90 && nh < 8)
-        SDL_snprintf(H[nh++], sizeof H[0], "The graphics card is nearly always busy: lighter settings keep it cooler and quieter.");
-    for (int i = 0; i < nh && n < 15; i++) { SDL_strlcpy(L[n], H[i], sizeof L[0]); col[n++] = warn; }
-
-    float lh = ui_line_h(UI_SMALL), w = 0;
-    if (n < 15) { SDL_snprintf(L[n], sizeof L[0], "Log: %sdiagnostics.log", pref); col[n++] = ui_rgba(150, 150, 150, 255); }
-    for (int i = 0; i < n; i++) { float t = ui_text_w(UI_SMALL, L[i]); if (t > w) w = t; }
-    ui_rect(1260 - w - 16, 10, w + 16, lh * n + 12, ui_rgba(0, 0, 0, 190));
-    for (int i = 0; i < n; i++) ui_text_right(UI_SMALL, 1252, 16 + lh * i, col[i], L[i]);
+    if (odd_hz) box_line(warn, "The screen runs at %.0f Hz: the game is made for 60. Pick a 60 Hz mode.", hz);
+    if (comp) box_line(warn, "A compositor is running: it can tear the fullscreen picture. Stop it while playing.");
+    if (early) box_line(warn, "Frames don't wait for the screen: tearing likely (a compositor, or the driver ignores VSync).");
+    if (late) box_line(warn, "Frames miss the screen's refresh: the computer or the graphics card is too slow for these settings.");
+    if (!g_set.vsync) box_line(warn, "VSync is off: turn it on (Display) for smooth, tear-free motion.");
+    if (busy) box_line(warn, "The graphics card is nearly always busy: lighter settings keep it cooler and quieter.");
+    box_line(ui_rgba(150, 150, 150, 255), "Log: %sdiagnostics.log", pref);
+    box_draw();
 }
 
 static void draw_sound_lab(void);
@@ -1496,10 +1535,8 @@ static void present(void)
     }
     if (g_set.show_fps == 2) draw_diagnostics();
     else if (g_set.show_fps) {
-        char s[96];
-        SDL_snprintf(s, sizeof s, "%s  Game %.0f  Display %.0f", SDL_GetRendererName(ren), fps_game, fps_disp);
-        ui_rect(1260 - ui_text_w(UI_SMALL, s) - 16, 10, ui_text_w(UI_SMALL, s) + 16, 30, ui_rgba(0, 0, 0, 160));
-        ui_text_right(UI_SMALL, 1252, 14, ui_rgba(160, 230, 140, 255), s);
+        box_line(ui_rgba(160, 230, 140, 255), "%s  Game %.0f  Display %.0f", SDL_GetRendererName(ren), fps_game, fps_disp);
+        box_draw();
     }
 }
 
@@ -2378,7 +2415,7 @@ static void pump_audio(int keep)
     if (!aud) return;
     /* Hold about 3 frames queued; nudge the playback rate to stay there. */
     float queued = SDL_GetAudioStreamQueued(aud) / (4.0f * AUDIO_RATE);
-    if (queued * 1000 < astat_now.min_ms) astat_now.min_ms = queued * 1000;
+    if (!astat_now.n++ || queued * 1000 < astat_now.min_ms) astat_now.min_ms = queued * 1000;
     if (queued * 1000 > astat_now.max_ms) astat_now.max_ms = queued * 1000;
     if (keep && queued < 0.005f) astat_now.starved++;
     if (queued > 0.25f) { SDL_ClearAudioStream(aud); queued = 0; astat_now.clears++; }
@@ -2389,45 +2426,18 @@ static void pump_audio(int keep)
     SDL_SetAudioStreamFrequencyRatio(aud, ratio);
 }
 
-/* ---------------- frame pacing ----------------
- * The Genesis runs at 59.92 Hz and most screens at 60 Hz. Paced by the clock,
- * the game shows one frame twice about every 12 s, and the scroll stutters
- * while the two clocks are nearly in step. Display sync runs one game frame
- * per screen refresh instead (the game 0.13% faster; the audio rate control
- * in pump_audio absorbs it). It needs VSync to really wait for the refresh:
- * the time between presents is watched, and the clock takes over when the
- * screen isn't near 60 Hz, VSync doesn't wait, or frames are missed. */
-static void diag_extra(char *buf, size_t n)   /* the CRT filter's part of the log line */
-{
-    float ms = g_set.crt ? crt_gpu_ms() : -1.0f;
-    if (!g_set.crt) SDL_snprintf(buf, n, "crt=off");
-    else if (ms < 0.0f) SDL_snprintf(buf, n, "crt=not-running");
-    else {
-        char passes[400];
-        crt_pass_times(passes, sizeof passes);
-        SDL_snprintf(buf, n, "crt_gpu_ms=%.2f crt=\"%s\" passes_ms=\"%s\"", ms, crt_describe(), passes);
-    }
-}
-
 /* Show FPS: Diagnostics also writes <settings>/diagnostics.log: what the
  * system is, every setting (again whenever one changes), then a line of
  * measures a second. A new session starts the file again. */
-static void diag_tick(uint64_t now)
+static void diag_log(uint64_t now)
 {
     static FILE *f;
     static int session_started;
-    static uint64_t last;
     static settings_t logged;
     if (g_set.show_fps != 2) {
         if (f) { fclose(f); f = NULL; }
         return;
     }
-    if (now - last < 1000000000ull) return;
-    last = now;
-    gpumon_poll(&gstat);
-    find_compositor();
-    astat = astat_now;
-    astat_now = (audio_stat){ 1e9f, 0, astat.ratio, 0, 0 };
     if (!f) {
         char path[1100];
         SDL_snprintf(path, sizeof path, "%sdiagnostics.log", pref);
@@ -2443,72 +2453,82 @@ static void diag_tick(uint64_t now)
                 SDL_GetCurrentVideoDriver(), SDL_GetRendererName(ren), SDL_GetNumLogicalCPUCores(), SDL_GetSystemRAM());
         fprintf(f, "# game: %s\n", game ? game->id : "none");
         fprintf(f, "# graphics card monitor: %s\n", gstat.source ? gstat.source : "none (load, temperature and power unknown)");
-        fprintf(f, "# the compositor column: an X11 compositing manager running (- none)\n");
         session_started = 1;
         memset(&logged, 0xFF, sizeof logged);   /* write the settings below */
     }
     if (memcmp(&logged, &g_set, sizeof g_set)) {
         logged = g_set;
-        settings_save(settings_path);
-        size_t n = 0;
-        char *ini = SDL_LoadFile(settings_path, &n);
-        fprintf(f, "# settings (settings.ini):\n");
-        if (ini) {
-            for (char *l = strtok(ini, "\n"); l; l = strtok(NULL, "\n")) fprintf(f, "#   %s\n", l);
-            SDL_free(ini);
-        }
-        fprintf(f, "# time_s game_fps display_fps screen pacing frame_avg_ms frame_max_ms late early gpu_load gpu_temp gpu_w fan clock_mhz audio_min_ms audio_max_ms audio_ratio audio_clears audio_starved compositor extra\n");
+        fprintf(f, "# settings:\n");
+        settings_write(f, "#   ");
+        fprintf(f, "# time_s game_fps display_fps screen pacing frame_avg_ms frame_max_ms late early gpu_load gpu_temp gpu_w fan clock_mhz audio_min_ms audio_max_ms audio_ratio audio_clears audio_starved compositing extra\n");
     }
-    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
     char extra[768];
     diag_extra(extra, sizeof extra);
-    fprintf(f, "%.0f %.1f %.1f %dx%d@%.2f %s %.2f %.2f %d %d %d %d %d %d %d %.0f %.0f %.4f %d %d %s %s\n",
-            now / 1e9, fps_game, fps_disp, dm ? dm->w : 0, dm ? dm->h : 0, dm ? dm->refresh_rate : 0.0f,
-            sync_on ? "display" : "clock", pstat.avg_ms, pstat.max_ms, pstat.late, pstat.fast,
+    fprintf(f, "%.0f %.1f %.1f %dx%d@%.2f %s %.2f %.2f %d %d %d %d %d %d %d %.0f %.0f %.4f %d %d %d %s\n",
+            now / 1e9, fps_game, fps_disp, display_mode()->w, display_mode()->h, display_hz(), sync_on ? "display" : "clock",
+            pstat.n ? pstat.sum_ms / pstat.n : 0.0, pstat.max_ms, pstat.late, pstat.early,
             gstat.load, gstat.temp, gstat.power, gstat.fan, gstat.clock,
-            astat.min_ms > 1e8f ? -1.0f : astat.min_ms, astat.max_ms, astat.ratio, astat.clears, astat.starved,
-            compositor[0] ? compositor : "-", extra);
+            astat.min_ms, astat.max_ms, astat.ratio, astat.clears, astat.starved, compositing, extra);
     fflush(f);
 }
 
+/* Once a second, with the fps figures: the last second's measures, and while
+ * Diagnostics is shown the graphics card, the compositor and the log line. */
+static void diag_second(uint64_t now)
+{
+    pstat = pstat_now;
+    pstat_now = (present_stat){ 0 };
+    astat = astat_now;
+    astat_now = (audio_stat){ 0, 0, astat.ratio, 0, 0, 0 };
+    if (g_set.show_fps == 2) {
+        gpumon_poll(&gstat);
+        compositing = find_compositing();
+    }
+    diag_log(now);
+}
+
+/* ---------------- frame pacing ----------------
+ * The Genesis runs at 59.92 Hz and most screens at 60 Hz. Paced by the clock,
+ * the game shows one frame twice about every 12 s, and the scroll stutters
+ * while the two clocks are nearly in step. Display sync runs one game frame
+ * per screen refresh instead (the game 0.13% faster; the audio rate control
+ * in pump_audio absorbs it). It needs VSync to really wait for the refresh:
+ * the time between presents is watched, and the clock takes over when the
+ * screen isn't near 60 Hz, VSync doesn't wait, or frames are missed. */
 static void pacing_update(uint64_t now)
 {
-    static uint64_t last, sec_t0;
-    static int fast, slow, good, cooldown;
-    static double sec_sum, sec_max;
-    static int sec_n, sec_late, sec_fast;
+    static uint64_t last;
+    static int early, late, good, cooldown;
     uint64_t dt = last ? now - last : 0;
     last = now;
     if (!dt) return;
-    sec_sum += dt / 1e6; sec_n++;
-    if (dt / 1e6 > sec_max) sec_max = dt / 1e6;
-    sec_late += dt > 19000000ull;
-    sec_fast += dt < 14500000ull;
-    if (now - sec_t0 >= 1000000000ull) {
-        pstat.avg_ms = sec_sum / sec_n; pstat.max_ms = sec_max;
-        pstat.late = sec_late; pstat.fast = sec_fast;
-        sec_t0 = now; sec_sum = sec_max = 0; sec_n = sec_late = sec_fast = 0;
-    }
-    if (dt < 14500000ull) fast++;           /* under 69 Hz: not waiting for a 60 Hz refresh */
-    else if (dt > 19000000ull) slow++;      /* a refresh missed */
-    else good++;
-    if (sync_on && fast >= 4) {             /* VSync stopped waiting: leave at once */
+    /* expected: a refresh with VSync waiting, else a game frame (clock pacing) */
+    float hz = display_hz();
+    double refresh = hz > 0.0f ? 1e9 / hz : (double)FRAME_NS;
+    double expect = sync_on ? refresh : (refresh > FRAME_NS ? refresh : (double)FRAME_NS);
+    int is_early = g_set.vsync && dt < refresh * 0.85, is_late = dt > expect * 1.15;
+    pstat_now.sum_ms += dt / 1e6;
+    pstat_now.n++;
+    if (dt / 1e6 > pstat_now.max_ms) pstat_now.max_ms = dt / 1e6;
+    pstat_now.early += is_early;
+    pstat_now.late += is_late;
+    early += is_early; late += is_late; good += !is_early && !is_late;
+
+    if (sync_on && early >= 4) {            /* VSync stopped waiting: leave at once */
         sync_on = 0; cooldown = 300;
         SDL_Log("pacing: display sync off (presents not waiting for the refresh)");
     }
-    if (fast + slow + good < 120) return;
+    if (early + late + good < 120) return;
     if (cooldown > 0) cooldown -= 120;
-    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
-    float hz = dm ? dm->refresh_rate : 0.0f;
-    int want = g_set.display_sync && g_set.vsync && (hz == 0.0f || (hz > 59.0f && hz < 61.0f));
-    if (sync_on && (!want || slow > 12)) {
+    int want = g_set.display_sync && g_set.vsync && (hz == 0.0f || near_60(hz));
+    if (sync_on && (!want || late > 12)) {
         sync_on = 0; cooldown = 600;
         SDL_Log("pacing: display sync off (%s)", want ? "missed refreshes" : "setting, VSync or refresh rate");
-    } else if (!sync_on && want && cooldown <= 0 && fast == 0 && slow <= 2) {
+    } else if (!sync_on && want && cooldown <= 0 && early == 0 && late <= 2) {
         sync_on = 1;
         SDL_Log("pacing: display sync on (%.2f Hz)", hz);
     }
-    fast = slow = good = 0;
+    early = late = good = 0;
 }
 
 static void handle_event(const SDL_Event *e)
@@ -3593,20 +3613,21 @@ static void run_game(void)
         if (!halted) scene_frame();
         present();
         after_present();
-        if (!max_ticks) { uint64_t tp = SDL_GetTicksNS(); pacing_update(tp); diag_tick(tp); }
+        if (!max_ticks) pacing_update(SDL_GetTicksNS());
         disp_frames++;
         if (now - fps_t0 >= 1000000000ull) {
             double dt = (now - fps_t0) / 1e9;
             fps_game = (g_frame - game_frames0) / dt;
             fps_disp = disp_frames / dt;
             fps_t0 = now; game_frames0 = g_frame; disp_frames = 0;
+            if (!max_ticks) diag_second(now);
         }
         if (max_ticks) continue;
         if (!halted) {
             uint64_t t = SDL_GetTicksNS();               /* (display sync: present() already waited) */
             /* clock pacing: wait for the next game frame, so the picture (and the CRT
              * filter's GPU work) is drawn once a frame even if VSync doesn't wait */
-            if (!sync_on && t < next) SDL_DelayPrecise(next - t);
+            if (!sync_on && t < next) SDL_DelayNS(next - t);
         } else {
             SDL_Delay(8);
         }
