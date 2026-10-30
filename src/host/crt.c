@@ -409,6 +409,18 @@ int crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
     }
     if (P.failed) return 0;
 
+    /* the same game frame with the same options: the picture is already in
+     * out_tex (menus, pause, a refresh shown twice): no GPU work */
+    static struct { uint64_t frame; crt_look look; int w, h, vw, vh, console; const uint32_t *px; } last;
+    if (out_tex && last.frame == frame && !memcmp(&last.look, look, sizeof *look) && last.w == w && last.h == h &&
+        last.vw == vw && last.vh == vh && last.console == console && last.px == px) {
+        SDL_FRect d = { SDL_floorf(dst.x + 0.5f), SDL_floorf(dst.y + 0.5f), (float)vw, (float)vh };
+        SDL_RenderTexture(R, out_tex, NULL, &d);
+        return 1;
+    }
+    last.frame = frame; last.look = *look; last.w = w; last.h = h; last.vw = vw; last.vh = vh;
+    last.console = console; last.px = px;
+
     /* the output: an SDL target texture, drawn by SDL afterwards */
     if (!out_tex || out_w != vw || out_h != vh) {
         if (out_tex) SDL_DestroyTexture(out_tex);

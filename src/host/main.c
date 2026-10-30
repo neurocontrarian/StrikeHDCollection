@@ -37,6 +37,7 @@
 #include "sfxmix.h"
 #include "modplay.h"
 #include "crt.h"
+#include "gpumon.h"
 
 static void music_stop(void);
 /* Amiga extras: moments the Genesis has no sound for (docs/13-amiga-ultimate.md).
@@ -667,6 +668,8 @@ static struct {                             /* the last second of presents, for 
     double avg_ms, max_ms;
     int late, fast;                         /* refreshes missed; presents that didn't wait for one */
 } pstat;
+static gpu_stat gstat;                      /* graphics card, polled each second while Diagnostics is shown */
+static void diag_extra(char *buf, size_t n);   /* more measures for the log line */
 
 static SDL_FRect game_dst;                   /* where the game image was drawn */
 
@@ -1361,8 +1364,8 @@ static void draw_game(int ow, int oh)
 static void draw_diagnostics(void)
 {
     static const char *const wm[] = { "windowed", "borderless fullscreen", "exclusive fullscreen" };
-    char L[10][160], H[5][160];
-    SDL_FColor col[10];
+    char L[12][160], H[7][160];
+    SDL_FColor col[12];
     int n = 0, nh = 0;
     SDL_FColor ok = ui_rgba(160, 230, 140, 255), warn = ui_rgba(250, 200, 80, 255), bad = ui_rgba(250, 110, 90, 255);
     const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
@@ -1383,6 +1386,11 @@ static void draw_diagnostics(void)
     SDL_snprintf(L[n], sizeof L[0], "Frame time %.1f ms avg, %.1f max   late %d/s   early %d/s",
                  pstat.avg_ms, pstat.max_ms, pstat.late, pstat.fast);
     col[n++] = pstat.late > 1 || (g_set.vsync && pstat.fast > 2) ? bad : ok;
+    if (gstat.source) {
+        SDL_snprintf(L[n], sizeof L[0], "Graphics card: load %d%%   %d C   %d W   fan %d%%   %d MHz",
+                     gstat.load, gstat.temp, gstat.power, gstat.fan, gstat.clock);
+        col[n++] = gstat.load > 90 ? bad : gstat.load > 70 ? warn : ok;
+    }
 
     float cms = g_set.crt ? crt_gpu_ms() : -1.0f;
     if (g_set.crt) {
@@ -1401,9 +1409,12 @@ static void draw_diagnostics(void)
         SDL_snprintf(H[nh++], sizeof H[0], "Frames miss the screen's refresh: the computer or the graphics card is too slow for these settings.");
     if (!g_set.vsync)
         SDL_snprintf(H[nh++], sizeof H[0], "VSync is off: turn it on (Display) for smooth, tear-free motion.");
-    for (int i = 0; i < nh && n < 10; i++) { SDL_strlcpy(L[n], H[i], sizeof L[0]); col[n++] = warn; }
+    if (gstat.load > 90 && nh < 7)
+        SDL_snprintf(H[nh++], sizeof H[0], "The graphics card is nearly always busy: lighter settings keep it cooler and quieter.");
+    for (int i = 0; i < nh && n < 12; i++) { SDL_strlcpy(L[n], H[i], sizeof L[0]); col[n++] = warn; }
 
     float lh = ui_line_h(UI_SMALL), w = 0;
+    if (n < 12) { SDL_snprintf(L[n], sizeof L[0], "Log: %sdiagnostics.log", pref); col[n++] = ui_rgba(150, 150, 150, 255); }
     for (int i = 0; i < n; i++) { float t = ui_text_w(UI_SMALL, L[i]); if (t > w) w = t; }
     ui_rect(1260 - w - 16, 10, w + 16, lh * n + 12, ui_rgba(0, 0, 0, 190));
     for (int i = 0; i < n; i++) ui_text_right(UI_SMALL, 1252, 16 + lh * i, col[i], L[i]);
@@ -2340,6 +2351,70 @@ static void pump_audio(int keep)
  * in pump_audio absorbs it). It needs VSync to really wait for the refresh:
  * the time between presents is watched, and the clock takes over when the
  * screen isn't near 60 Hz, VSync doesn't wait, or frames are missed. */
+static void diag_extra(char *buf, size_t n)   /* the CRT filter's part of the log line */
+{
+    float ms = g_set.crt ? crt_gpu_ms() : -1.0f;
+    if (!g_set.crt) SDL_snprintf(buf, n, "crt=off");
+    else if (ms < 0.0f) SDL_snprintf(buf, n, "crt=not-running");
+    else SDL_snprintf(buf, n, "crt_gpu_ms=%.2f crt=\"%s\"", ms, crt_describe());
+}
+
+/* Show FPS: Diagnostics also writes <settings>/diagnostics.log: what the
+ * system is, every setting (again whenever one changes), then a line of
+ * measures a second. A new session starts the file again. */
+static void diag_tick(uint64_t now)
+{
+    static FILE *f;
+    static int session_started;
+    static uint64_t last;
+    static settings_t logged;
+    if (g_set.show_fps != 2) {
+        if (f) { fclose(f); f = NULL; }
+        return;
+    }
+    if (now - last < 1000000000ull) return;
+    last = now;
+    gpumon_poll(&gstat);
+    if (!f) {
+        char path[1100];
+        SDL_snprintf(path, sizeof path, "%sdiagnostics.log", pref);
+        f = fopen(path, session_started ? "a" : "w");
+        if (!f) return;
+        SDL_Time t = 0;
+        SDL_DateTime dt;
+        SDL_GetCurrentTime(&t);
+        SDL_TimeToDateTime(t, &dt, true);
+        fprintf(f, "# %s diagnostics, %04d-%02d-%02d %02d:%02d:%02d\n", APP_TITLE, dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+        fprintf(f, "# system: %s, SDL %d.%d.%d, video %s, renderer %s, %d CPU cores, %d MB RAM\n", SDL_GetPlatform(),
+                SDL_VERSIONNUM_MAJOR(SDL_GetVersion()), SDL_VERSIONNUM_MINOR(SDL_GetVersion()), SDL_VERSIONNUM_MICRO(SDL_GetVersion()),
+                SDL_GetCurrentVideoDriver(), SDL_GetRendererName(ren), SDL_GetNumLogicalCPUCores(), SDL_GetSystemRAM());
+        fprintf(f, "# game: %s\n", game ? game->id : "none");
+        fprintf(f, "# graphics card monitor: %s\n", gstat.source ? gstat.source : "none (load, temperature and power unknown)");
+        session_started = 1;
+        memset(&logged, 0xFF, sizeof logged);   /* write the settings below */
+    }
+    if (memcmp(&logged, &g_set, sizeof g_set)) {
+        logged = g_set;
+        settings_save(settings_path);
+        size_t n = 0;
+        char *ini = SDL_LoadFile(settings_path, &n);
+        fprintf(f, "# settings (settings.ini):\n");
+        if (ini) {
+            for (char *l = strtok(ini, "\n"); l; l = strtok(NULL, "\n")) fprintf(f, "#   %s\n", l);
+            SDL_free(ini);
+        }
+        fprintf(f, "# time_s game_fps display_fps screen pacing frame_avg_ms frame_max_ms late early gpu_load gpu_temp gpu_w fan clock_mhz extra\n");
+    }
+    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
+    char extra[256];
+    diag_extra(extra, sizeof extra);
+    fprintf(f, "%.0f %.1f %.1f %dx%d@%.2f %s %.2f %.2f %d %d %d %d %d %d %d %s\n",
+            now / 1e9, fps_game, fps_disp, dm ? dm->w : 0, dm ? dm->h : 0, dm ? dm->refresh_rate : 0.0f,
+            sync_on ? "display" : "clock", pstat.avg_ms, pstat.max_ms, pstat.late, pstat.fast,
+            gstat.load, gstat.temp, gstat.power, gstat.fan, gstat.clock, extra);
+    fflush(f);
+}
+
 static void pacing_update(uint64_t now)
 {
     static uint64_t last, sec_t0;
@@ -3462,7 +3537,7 @@ static void run_game(void)
         if (!halted) scene_frame();
         present();
         after_present();
-        if (!max_ticks) pacing_update(SDL_GetTicksNS());
+        if (!max_ticks) { uint64_t tp = SDL_GetTicksNS(); pacing_update(tp); diag_tick(tp); }
         disp_frames++;
         if (now - fps_t0 >= 1000000000ull) {
             double dt = (now - fps_t0) / 1e9;
@@ -3473,7 +3548,9 @@ static void run_game(void)
         if (max_ticks) continue;
         if (!halted) {
             uint64_t t = SDL_GetTicksNS();               /* (display sync: present() already waited) */
-            if (!sync_on && t < next && next - t > 2000000) SDL_DelayNS(next - t - 1000000);
+            /* clock pacing: wait for the next game frame, so the picture (and the CRT
+             * filter's GPU work) is drawn once a frame even if VSync doesn't wait */
+            if (!sync_on && t < next) SDL_DelayPrecise(next - t);
         } else {
             SDL_Delay(8);
         }
