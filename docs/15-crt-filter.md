@@ -48,11 +48,14 @@ model spreads the source line across the tube's width. So a widescreen frame (43
 16:9 tube, like the widescreen CRT TVs of the late 1990s. Screens that stay 4:3 (menus, maps, cutscenes) are
 already pillarboxed inside the frame by the host, so the tube keeps its shape.
 
-The presets' absolute widths are meant for a 320-pixel line (the encoder's 1280 samples, 4 a pixel; the
-beam's 8192): a wider frame gets them in proportion, so it keeps as many samples per pixel.
+The encoder's absolute width is meant for a 320-pixel line (1280 samples, 4 a pixel): a wider frame gets
+it in proportion, so it keeps as many samples per pixel. The beam's 8192 stays as it is: it is already
+more than two samples per screen pixel at 4K (scaling it too made the heaviest pass a third slower).
 
 ## Performance
-Measured with `DS_CRT_TIME=1` (GPU time a frame; `=2` also each pass).
+Measured with GPU timestamps around each pass, read a few frames later so nothing stalls: Settings →
+Display → Show FPS → Diagnostics shows them and writes them to `diagnostics.log` (the tables below were
+measured earlier with `glFinish` around each pass).
 
 Intel UHD Graphics 630 (i5-10500T, Mesa 26 iris, GPU at its 1150 MHz maximum), ms of GPU time a frame,
 curved; 16:9 is 1920×1067 (widescreen 16:9), 4:3 is 1440×1080:

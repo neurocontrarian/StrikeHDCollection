@@ -1400,8 +1400,8 @@ static void draw_game(int ow, int oh)
 static void draw_diagnostics(void)
 {
     static const char *const wm[] = { "windowed", "borderless fullscreen", "exclusive fullscreen" };
-    char L[14][160], H[8][160];
-    SDL_FColor col[14];
+    char L[15][192], H[8][160];
+    SDL_FColor col[15];
     int n = 0, nh = 0;
     SDL_FColor ok = ui_rgba(160, 230, 140, 255), warn = ui_rgba(250, 200, 80, 255), bad = ui_rgba(250, 110, 90, 255);
     const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
@@ -1437,6 +1437,7 @@ static void draw_diagnostics(void)
         if (cms >= 0.0f) SDL_snprintf(L[n], sizeof L[0], "CRT %s   GPU %.1f ms a frame", crt_describe(), cms);
         else SDL_snprintf(L[n], sizeof L[0], "CRT filter not running: %s", crt_why_not()[0] ? crt_why_not() : "no game picture yet");
         col[n++] = cms < 0.0f ? warn : cms > 14.0f ? bad : cms > 10.0f ? warn : ok;
+        if (cms >= 0.0f && crt_pass_times(L[n] + 8, sizeof L[0] - 8)) { memcpy(L[n], "Passes: ", 8); col[n++] = ok; }
     }
     if (cms > 14.0f)
         SDL_snprintf(H[nh++], sizeof H[0], "The CRT filter takes %.0f of the 16.7 ms a frame has: try %s.", cms,
@@ -1453,10 +1454,10 @@ static void draw_diagnostics(void)
         SDL_snprintf(H[nh++], sizeof H[0], "VSync is off: turn it on (Display) for smooth, tear-free motion.");
     if (gstat.load > 90 && nh < 8)
         SDL_snprintf(H[nh++], sizeof H[0], "The graphics card is nearly always busy: lighter settings keep it cooler and quieter.");
-    for (int i = 0; i < nh && n < 14; i++) { SDL_strlcpy(L[n], H[i], sizeof L[0]); col[n++] = warn; }
+    for (int i = 0; i < nh && n < 15; i++) { SDL_strlcpy(L[n], H[i], sizeof L[0]); col[n++] = warn; }
 
     float lh = ui_line_h(UI_SMALL), w = 0;
-    if (n < 14) { SDL_snprintf(L[n], sizeof L[0], "Log: %sdiagnostics.log", pref); col[n++] = ui_rgba(150, 150, 150, 255); }
+    if (n < 15) { SDL_snprintf(L[n], sizeof L[0], "Log: %sdiagnostics.log", pref); col[n++] = ui_rgba(150, 150, 150, 255); }
     for (int i = 0; i < n; i++) { float t = ui_text_w(UI_SMALL, L[i]); if (t > w) w = t; }
     ui_rect(1260 - w - 16, 10, w + 16, lh * n + 12, ui_rgba(0, 0, 0, 190));
     for (int i = 0; i < n; i++) ui_text_right(UI_SMALL, 1252, 16 + lh * i, col[i], L[i]);
@@ -2402,7 +2403,11 @@ static void diag_extra(char *buf, size_t n)   /* the CRT filter's part of the lo
     float ms = g_set.crt ? crt_gpu_ms() : -1.0f;
     if (!g_set.crt) SDL_snprintf(buf, n, "crt=off");
     else if (ms < 0.0f) SDL_snprintf(buf, n, "crt=not-running");
-    else SDL_snprintf(buf, n, "crt_gpu_ms=%.2f crt=\"%s\"", ms, crt_describe());
+    else {
+        char passes[400];
+        crt_pass_times(passes, sizeof passes);
+        SDL_snprintf(buf, n, "crt_gpu_ms=%.2f crt=\"%s\" passes_ms=\"%s\"", ms, crt_describe(), passes);
+    }
 }
 
 /* Show FPS: Diagnostics also writes <settings>/diagnostics.log: what the
@@ -2456,7 +2461,7 @@ static void diag_tick(uint64_t now)
         fprintf(f, "# time_s game_fps display_fps screen pacing frame_avg_ms frame_max_ms late early gpu_load gpu_temp gpu_w fan clock_mhz audio_min_ms audio_max_ms audio_ratio audio_clears audio_starved compositor extra\n");
     }
     const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
-    char extra[256];
+    char extra[768];
     diag_extra(extra, sizeof extra);
     fprintf(f, "%.0f %.1f %.1f %dx%d@%.2f %s %.2f %.2f %d %d %d %d %d %d %d %.0f %.0f %.4f %d %d %s %s\n",
             now / 1e9, fps_game, fps_disp, dm ? dm->w : 0, dm ? dm->h : 0, dm ? dm->refresh_rate : 0.0f,

@@ -35,6 +35,8 @@ int  crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
 /* For Show FPS: Diagnostics: the GPU time the passes take (ms, smoothed;
  * -1 when the filter hasn't run lately), and what is running. */
 float crt_gpu_ms(void);
+/* Each pass's GPU time, "native 0.12, encode 1.30, ..." (0 when not measured). */
+int crt_pass_times(char *buf, size_t n);
 const char *crt_describe(void);
 
 #endif

@@ -60,7 +60,7 @@ static const char *const preset_file[CRT_PRESET_COUNT] = {
     X(GLenum, CheckFramebufferStatus, (GLenum)) X(void, Finish, (void)) \
     X(GLsync, FenceSync, (GLenum, GLbitfield)) X(GLenum, ClientWaitSync, (GLsync, GLbitfield, GLuint64)) \
     X(void, DeleteSync, (GLsync)) \
-    X(void, GenQueries, (GLsizei, GLuint *)) X(void, BeginQuery, (GLenum, GLuint)) X(void, EndQuery, (GLenum)) \
+    X(void, GenQueries, (GLsizei, GLuint *)) X(void, QueryCounter, (GLuint, GLenum)) \
     X(void, GetQueryObjectiv, (GLuint, GLenum, GLint *)) X(void, GetQueryObjectui64v, (GLuint, GLenum, GLuint64 *))
 #define X(r, n, a) r (APIENTRY *n) a;
 static struct { GL_FUNCS(X) } gl;
@@ -105,17 +105,31 @@ static int out_w, out_h;
 static GLuint out_gl;
 static GLenum out_target;
 static GLsync fence;
-/* GPU time of the passes, from timer queries read a few frames later (no stall) */
+/* GPU time of each pass, from GPU timestamps read a few frames later (no stall) */
 #define NQ 4
-static GLuint queries[NQ];
-static int q_next, q_pending[NQ];
-static float gpu_ms;
+static GLuint queries[NQ][MAX_PASSES + 1];
+static int q_next, q_pending[NQ];           /* passes timed in that set (0: free) */
+static float gpu_ms, pass_ms[MAX_PASSES];   /* smoothed */
 static uint64_t gpu_ms_t;                  /* when gpu_ms was last measured */
 static char look_desc[96];
 
 const char *crt_why_not(void) { return why; }
 
 float crt_gpu_ms(void) { return SDL_GetTicksNS() - gpu_ms_t < 1000000000ull ? gpu_ms : -1.0f; }
+
+int crt_pass_times(char *buf, size_t n)
+{
+    size_t len = 0;
+    buf[0] = 0;
+    if (crt_gpu_ms() < 0.0f) return 0;
+    for (int i = 0; i < P.n && len < n; i++) {
+        const char *name = strrchr(P.p[i].shader, '/');
+        name = name ? name + 1 : P.p[i].shader;
+        int nl = (int)(strcspn(name, "."));
+        len += SDL_snprintf(buf + len, n - len, "%s%.*s %.2f", i ? ", " : "", nl, name, pass_ms[i]);
+    }
+    return P.n;
+}
 const char *crt_describe(void) { return look_desc; }
 
 int crt_init(SDL_Renderer *ren)
@@ -370,10 +384,11 @@ static int pass_size(const pass_t *p, int ax, int prev, int vp, int in_w)
     float s;
     switch (p->stype[ax]) {
     case ST_VIEWPORT: s = vp * p->scale[ax]; break;
-    /* Absolute widths are meant for a console's 320-pixel line (the encoder's
-     * 1280 = 4 samples a pixel, the beam's 8192): a widescreen line is longer,
-     * so it gets as many samples per pixel. */
-    case ST_ABSOLUTE: s = p->scale[ax] * (ax == 0 && in_w > 320 ? in_w / 320.0f : 1.0f); break;
+    /* The encoder's 1280 samples are 4 a pixel of a console's 320-pixel line:
+     * a widescreen line is longer, so it gets as many per pixel. The beam's
+     * 8192 already has more than two samples per screen pixel at 4K, so it
+     * stays as it is (scaling it too cost a quarter more GPU time for nothing). */
+    case ST_ABSOLUTE: s = p->scale[ax] * (ax == 0 && in_w > 320 && strstr(p->shader, "encode") ? in_w / 320.0f : 1.0f); break;
     default:          s = prev * p->scale[ax]; break;
     }
     int n = (int)(s + 0.5f);
@@ -501,31 +516,33 @@ int crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
         set_param("LR_SMOOTH", 1);      /* each pixel shows the light averaged over its height */
     }
 
-    /* DS_CRT_TIME=1 logs the GPU time a frame, 2 also each pass (it waits for
-     * the GPU, so it slows the game a little) */
-    const char *te = SDL_getenv("DS_CRT_TIME");
-    int timing = te ? SDL_atoi(te) : 0;
-    uint64_t t0 = 0;
-    if (timing) { gl.Finish(); t0 = SDL_GetTicksNS(); }
-
-    /* collect finished timer queries, start this frame's */
-    if (!queries[0]) gl.GenQueries(NQ, queries);
+    /* collect finished timestamps (a set per frame: before the passes and
+     * after each), start this frame's */
+    if (!queries[0][0]) gl.GenQueries(NQ * (MAX_PASSES + 1), &queries[0][0]);
     for (int q = 0; q < NQ; q++) {
+        int np = q_pending[q];
         GLint avail = 0;
-        if (!q_pending[q]) continue;
-        gl.GetQueryObjectiv(queries[q], GL_QUERY_RESULT_AVAILABLE, &avail);
+        if (!np) continue;
+        gl.GetQueryObjectiv(queries[q][np], GL_QUERY_RESULT_AVAILABLE, &avail);
         if (!avail) continue;
-        GLuint64 ns = 0;
-        gl.GetQueryObjectui64v(queries[q], GL_QUERY_RESULT, &ns);
+        GLuint64 t[MAX_PASSES + 1];
+        for (int i = 0; i <= np; i++) gl.GetQueryObjectui64v(queries[q][i], GL_QUERY_RESULT, &t[i]);
         q_pending[q] = 0;
-        gpu_ms = gpu_ms_t ? gpu_ms * 0.9f + ns / 1e6f * 0.1f : ns / 1e6f;
+        if (np != P.n) continue;                        /* from another preset */
+        int first = !gpu_ms_t || SDL_GetTicksNS() - gpu_ms_t > 1000000000ull;
+        for (int i = 0; i < np; i++) {
+            float ms = (t[i + 1] - t[i]) / 1e6f;
+            pass_ms[i] = first ? ms : pass_ms[i] * 0.9f + ms * 0.1f;
+        }
+        float ms = (t[np] - t[0]) / 1e6f;
+        gpu_ms = first ? ms : gpu_ms * 0.9f + ms * 0.1f;
         gpu_ms_t = SDL_GetTicksNS();
     }
     int q_this = -1;
     if (!q_pending[q_next]) {
         q_this = q_next;
         q_next = (q_next + 1) % NQ;
-        gl.BeginQuery(GL_TIME_ELAPSED, queries[q_this]);
+        gl.QueryCounter(queries[q_this][0], GL_TIMESTAMP);
     }
     SDL_snprintf(look_desc, sizeof look_desc, "%s %s %s, %dx%d", crt_names[preset],
                  look->flat ? "flat" : "curved", look->lite ? "lite" : "full", vw, vh);
@@ -568,30 +585,12 @@ int crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
         if (p->u_framedir >= 0) gl.Uniform1i(p->u_framedir, 1);
         if (p->u_mvp >= 0) gl.UniformMatrix4fv(p->u_mvp, 1, GL_FALSE, mvp);
         for (int k = 0; k < P.np; k++) if (p->u_param[k] >= 0) gl.Uniform1f(p->u_param[k], P.pval[k]);
-        uint64_t tp = 0;
-        if (timing > 1) { gl.Finish(); tp = SDL_GetTicksNS(); }
         gl.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        if (timing > 1) {
-            gl.Finish();
-            static double sum[MAX_PASSES];
-            static int cnt[MAX_PASSES];
-            sum[i] += (SDL_GetTicksNS() - tp) / 1e6;
-            if (++cnt[i] == 120) {
-                SDL_Log("crt:   pass %d %-36s %5dx%-5d %6.2f ms", i, p->shader, pw, ph, sum[i] / 120);
-                sum[i] = 0; cnt[i] = 0;
-            }
-        }
+        if (q_this >= 0) gl.QueryCounter(queries[q_this][i + 1], GL_TIMESTAMP);
         prev_tex = p->tex;
         prev_w = pw; prev_h = ph;
     }
-    if (q_this >= 0) { gl.EndQuery(GL_TIME_ELAPSED); q_pending[q_this] = 1; }
-    if (timing) {
-        gl.Finish();
-        static double sum;
-        static int cnt;
-        sum += (SDL_GetTicksNS() - t0) / 1e6;
-        if (++cnt == 120) { SDL_Log("crt: GPU %.2f ms a frame (%dx%d, %s)", sum / cnt, vw, vh, P.key); sum = 0; cnt = 0; }
-    }
+    if (q_this >= 0) q_pending[q_this] = P.n;
     /* At most one filtered frame in flight: when the GPU is slower than the
      * game, frames would otherwise pile up (seen headless, where nothing
      * else waits for the GPU, as a blank window), and the picture lags. */
