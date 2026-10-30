@@ -75,3 +75,11 @@ blank window). A GPU that slow therefore slows the game down.
 
 The shaders compile once per preset and are cached by the driver: the first start took 16 s on Mesa for
 the full composite preset, later ones 0.3 to 1.6 s.
+
+## Tested on
+- Batocera 44-dev, X11 (openbox + picom), NVIDIA RTX 3090 (driver 610.57), 1920×1080 at 60 Hz: the full
+  RGB SCART preset takes 5–6 ms of GPU time. In fullscreen a torn band stayed at a fixed height (seen only
+  in motion; gone in a window and with the super lite passes). VSync was on and honoured; the cause was
+  picom, Batocera's compositor, copying the window on its own clock: with picom stopped the band is gone.
+  A Batocera launcher therefore stops picom while the game runs and starts it again afterwards.
+- Intel UHD 630 (Mesa): too slow, see Performance.
