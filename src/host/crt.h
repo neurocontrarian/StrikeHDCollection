@@ -32,4 +32,9 @@ typedef struct { int preset, flat, lite, glow, wires, antimoire, dither, mask; }
 int  crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
               int console, SDL_FRect dst, uint64_t frame);
 
+/* For Show FPS: Diagnostics: the GPU time the passes take (ms, smoothed;
+ * -1 when the filter hasn't run lately), and what is running. */
+float crt_gpu_ms(void);
+const char *crt_describe(void);
+
 #endif

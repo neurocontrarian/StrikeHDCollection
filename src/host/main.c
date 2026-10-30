@@ -1361,7 +1361,7 @@ static void draw_game(int ow, int oh)
 static void draw_diagnostics(void)
 {
     static const char *const wm[] = { "windowed", "borderless fullscreen", "exclusive fullscreen" };
-    char L[10][160], H[4][160];
+    char L[10][160], H[5][160];
     SDL_FColor col[10];
     int n = 0, nh = 0;
     SDL_FColor ok = ui_rgba(160, 230, 140, 255), warn = ui_rgba(250, 200, 80, 255), bad = ui_rgba(250, 110, 90, 255);
@@ -1384,6 +1384,15 @@ static void draw_diagnostics(void)
                  pstat.avg_ms, pstat.max_ms, pstat.late, pstat.fast);
     col[n++] = pstat.late > 1 || (g_set.vsync && pstat.fast > 2) ? bad : ok;
 
+    float cms = g_set.crt ? crt_gpu_ms() : -1.0f;
+    if (g_set.crt) {
+        if (cms >= 0.0f) SDL_snprintf(L[n], sizeof L[0], "CRT %s   GPU %.1f ms a frame", crt_describe(), cms);
+        else SDL_snprintf(L[n], sizeof L[0], "CRT filter not running: %s", crt_why_not()[0] ? crt_why_not() : "no game picture yet");
+        col[n++] = cms < 0.0f ? warn : cms > 14.0f ? bad : cms > 10.0f ? warn : ok;
+    }
+    if (cms > 14.0f)
+        SDL_snprintf(H[nh++], sizeof H[0], "The CRT filter takes %.0f of the 16.7 ms a frame has: try %s.", cms,
+                     g_set.crt_lite ? "a lower resolution or an RGB preset" : "CRT Quality Lite or a lower resolution");
     if (hz > 0.0f && (hz < 59.0f || hz > 61.0f))
         SDL_snprintf(H[nh++], sizeof H[0], "The screen runs at %.0f Hz: the game is made for 60. Pick a 60 Hz mode.", hz);
     if (g_set.vsync && pstat.fast > 2)

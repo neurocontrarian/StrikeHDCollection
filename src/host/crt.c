@@ -59,7 +59,9 @@ static const char *const preset_file[CRT_PRESET_COUNT] = {
     X(void, BindFramebuffer, (GLenum, GLuint)) X(void, FramebufferTexture2D, (GLenum, GLenum, GLenum, GLuint, GLint)) \
     X(GLenum, CheckFramebufferStatus, (GLenum)) X(void, Finish, (void)) \
     X(GLsync, FenceSync, (GLenum, GLbitfield)) X(GLenum, ClientWaitSync, (GLsync, GLbitfield, GLuint64)) \
-    X(void, DeleteSync, (GLsync))
+    X(void, DeleteSync, (GLsync)) \
+    X(void, GenQueries, (GLsizei, GLuint *)) X(void, BeginQuery, (GLenum, GLuint)) X(void, EndQuery, (GLenum)) \
+    X(void, GetQueryObjectiv, (GLuint, GLenum, GLint *)) X(void, GetQueryObjectui64v, (GLuint, GLenum, GLuint64 *))
 #define X(r, n, a) r (APIENTRY *n) a;
 static struct { GL_FUNCS(X) } gl;
 #undef X
@@ -103,8 +105,18 @@ static int out_w, out_h;
 static GLuint out_gl;
 static GLenum out_target;
 static GLsync fence;
+/* GPU time of the passes, from timer queries read a few frames later (no stall) */
+#define NQ 4
+static GLuint queries[NQ];
+static int q_next, q_pending[NQ];
+static float gpu_ms;
+static uint64_t gpu_ms_t;                  /* when gpu_ms was last measured */
+static char look_desc[96];
 
 const char *crt_why_not(void) { return why; }
+
+float crt_gpu_ms(void) { return SDL_GetTicksNS() - gpu_ms_t < 1000000000ull ? gpu_ms : -1.0f; }
+const char *crt_describe(void) { return look_desc; }
 
 int crt_init(SDL_Renderer *ren)
 {
@@ -484,6 +496,28 @@ int crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
     uint64_t t0 = 0;
     if (timing) { gl.Finish(); t0 = SDL_GetTicksNS(); }
 
+    /* collect finished timer queries, start this frame's */
+    if (!queries[0]) gl.GenQueries(NQ, queries);
+    for (int q = 0; q < NQ; q++) {
+        GLint avail = 0;
+        if (!q_pending[q]) continue;
+        gl.GetQueryObjectiv(queries[q], GL_QUERY_RESULT_AVAILABLE, &avail);
+        if (!avail) continue;
+        GLuint64 ns = 0;
+        gl.GetQueryObjectui64v(queries[q], GL_QUERY_RESULT, &ns);
+        q_pending[q] = 0;
+        gpu_ms = gpu_ms_t ? gpu_ms * 0.9f + ns / 1e6f * 0.1f : ns / 1e6f;
+        gpu_ms_t = SDL_GetTicksNS();
+    }
+    int q_this = -1;
+    if (!q_pending[q_next]) {
+        q_this = q_next;
+        q_next = (q_next + 1) % NQ;
+        gl.BeginQuery(GL_TIME_ELAPSED, queries[q_this]);
+    }
+    SDL_snprintf(look_desc, sizeof look_desc, "%s %s %s, %dx%d", crt_names[preset],
+                 look->flat ? "flat" : "curved", look->lite ? "lite" : "full", vw, vh);
+
     static const GLfloat mvp[16] = { 2, 0, 0, 0,  0, 2, 0, 0,  0, 0, -1, 0,  -1, -1, 0, 1 };
     int prev_w = w, prev_h = h;
     GLuint prev_tex = in_tex;
@@ -538,6 +572,7 @@ int crt_draw(const crt_look *look, const uint32_t *px, int pitch, int w, int h,
         prev_tex = p->tex;
         prev_w = pw; prev_h = ph;
     }
+    if (q_this >= 0) { gl.EndQuery(GL_TIME_ELAPSED); q_pending[q_this] = 1; }
     if (timing) {
         gl.Finish();
         static double sum;
