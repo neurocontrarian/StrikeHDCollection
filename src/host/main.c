@@ -657,6 +657,11 @@ static struct {                             /* the last second of presents, for 
     double avg_ms, max_ms;
     int late, fast;                         /* refreshes missed; presents that didn't wait for one */
 } pstat;
+typedef struct {                            /* audio over the last second, for Diagnostics */
+    float min_ms, max_ms, ratio;
+    int clears, starved;                    /* queue thrown away (too full); queue nearly empty */
+} audio_stat;
+static audio_stat astat_now = { 1e9f, 0, 1, 0, 0 }, astat;
 static gpu_stat gstat;                      /* graphics card, polled each second while Diagnostics is shown */
 static void diag_extra(char *buf, size_t n) { if (n) buf[0] = 0; }   /* more measures for the log line */
 
@@ -1342,8 +1347,8 @@ static void draw_game(int ow, int oh)
 static void draw_diagnostics(void)
 {
     static const char *const wm[] = { "windowed", "borderless fullscreen", "exclusive fullscreen" };
-    char L[11][160], H[6][160];
-    SDL_FColor col[11];
+    char L[13][160], H[6][160];
+    SDL_FColor col[13];
     int n = 0, nh = 0;
     SDL_FColor ok = ui_rgba(160, 230, 140, 255), warn = ui_rgba(250, 200, 80, 255), bad = ui_rgba(250, 110, 90, 255);
     const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
@@ -1364,6 +1369,9 @@ static void draw_diagnostics(void)
     SDL_snprintf(L[n], sizeof L[0], "Frame time %.1f ms avg, %.1f max   late %d/s   early %d/s",
                  pstat.avg_ms, pstat.max_ms, pstat.late, pstat.fast);
     col[n++] = pstat.late > 1 || (g_set.vsync && pstat.fast > 2) ? bad : ok;
+    SDL_snprintf(L[n], sizeof L[0], "Audio queue %.0f-%.0f ms   rate x%.4f   cut %d/s   starved %d/s",
+                 astat.min_ms > 1e8f ? 0.0f : astat.min_ms, astat.max_ms, astat.ratio, astat.clears, astat.starved);
+    col[n++] = astat.clears || astat.starved > 2 ? bad : ok;
     if (gstat.source) {
         SDL_snprintf(L[n], sizeof L[0], "Graphics card: load %d%%   %d C   %d W   fan %d%%   %d MHz",
                      gstat.load, gstat.temp, gstat.power, gstat.fan, gstat.clock);
@@ -1380,10 +1388,10 @@ static void draw_diagnostics(void)
         SDL_snprintf(H[nh++], sizeof H[0], "VSync is off: turn it on (Display) for smooth, tear-free motion.");
     if (gstat.load > 90 && nh < 5)
         SDL_snprintf(H[nh++], sizeof H[0], "The graphics card is nearly always busy: lighter settings keep it cooler and quieter.");
-    for (int i = 0; i < nh && n < 11; i++) { SDL_strlcpy(L[n], H[i], sizeof L[0]); col[n++] = warn; }
+    for (int i = 0; i < nh && n < 13; i++) { SDL_strlcpy(L[n], H[i], sizeof L[0]); col[n++] = warn; }
 
     float lh = ui_line_h(UI_SMALL), w = 0;
-    if (n < 11) { SDL_snprintf(L[n], sizeof L[0], "Log: %sdiagnostics.log", pref); col[n++] = ui_rgba(150, 150, 150, 255); }
+    if (n < 13) { SDL_snprintf(L[n], sizeof L[0], "Log: %sdiagnostics.log", pref); col[n++] = ui_rgba(150, 150, 150, 255); }
     for (int i = 0; i < n; i++) { float t = ui_text_w(UI_SMALL, L[i]); if (t > w) w = t; }
     ui_rect(1260 - w - 16, 10, w + 16, lh * n + 12, ui_rgba(0, 0, 0, 190));
     for (int i = 0; i < n; i++) ui_text_right(UI_SMALL, 1252, 16 + lh * i, col[i], L[i]);
@@ -2305,10 +2313,14 @@ static void pump_audio(int keep)
     if (!aud) return;
     /* Hold about 3 frames queued; nudge the playback rate to stay there. */
     float queued = SDL_GetAudioStreamQueued(aud) / (4.0f * AUDIO_RATE);
-    if (queued > 0.25f) { SDL_ClearAudioStream(aud); queued = 0; }
+    if (queued * 1000 < astat_now.min_ms) astat_now.min_ms = queued * 1000;
+    if (queued * 1000 > astat_now.max_ms) astat_now.max_ms = queued * 1000;
+    if (keep && queued < 0.005f) astat_now.starved++;
+    if (queued > 0.25f) { SDL_ClearAudioStream(aud); queued = 0; astat_now.clears++; }
     float ratio = 1.0f + (queued - 0.05f) * 0.2f;
     if (ratio < 0.99f) ratio = 0.99f;
     if (ratio > 1.01f) ratio = 1.01f;
+    astat_now.ratio = ratio;
     SDL_SetAudioStreamFrequencyRatio(aud, ratio);
 }
 
@@ -2336,6 +2348,8 @@ static void diag_tick(uint64_t now)
     if (now - last < 1000000000ull) return;
     last = now;
     gpumon_poll(&gstat);
+    astat = astat_now;
+    astat_now = (audio_stat){ 1e9f, 0, astat.ratio, 0, 0 };
     if (!f) {
         char path[1100];
         SDL_snprintf(path, sizeof path, "%sdiagnostics.log", pref);
@@ -2364,15 +2378,16 @@ static void diag_tick(uint64_t now)
             for (char *l = strtok(ini, "\n"); l; l = strtok(NULL, "\n")) fprintf(f, "#   %s\n", l);
             SDL_free(ini);
         }
-        fprintf(f, "# time_s game_fps display_fps screen pacing frame_avg_ms frame_max_ms late early gpu_load gpu_temp gpu_w fan clock_mhz extra\n");
+        fprintf(f, "# time_s game_fps display_fps screen pacing frame_avg_ms frame_max_ms late early gpu_load gpu_temp gpu_w fan clock_mhz audio_min_ms audio_max_ms audio_ratio audio_clears audio_starved extra\n");
     }
     const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
     char extra[256];
     diag_extra(extra, sizeof extra);
-    fprintf(f, "%.0f %.1f %.1f %dx%d@%.2f %s %.2f %.2f %d %d %d %d %d %d %d %s\n",
+    fprintf(f, "%.0f %.1f %.1f %dx%d@%.2f %s %.2f %.2f %d %d %d %d %d %d %d %.0f %.0f %.4f %d %d %s\n",
             now / 1e9, fps_game, fps_disp, dm ? dm->w : 0, dm ? dm->h : 0, dm ? dm->refresh_rate : 0.0f,
             sync_on ? "display" : "clock", pstat.avg_ms, pstat.max_ms, pstat.late, pstat.fast,
-            gstat.load, gstat.temp, gstat.power, gstat.fan, gstat.clock, extra);
+            gstat.load, gstat.temp, gstat.power, gstat.fan, gstat.clock,
+            astat.min_ms > 1e8f ? -1.0f : astat.min_ms, astat.max_ms, astat.ratio, astat.clears, astat.starved, extra);
     fflush(f);
 }
 
