@@ -126,6 +126,7 @@ int crt_init(SDL_Renderer *ren)
         return 0;
     }
     gl.GetIntegerv(GL_MAX_TEXTURE_SIZE, &max_tex);
+    SDL_Log("crt: OpenGL %s, %s, %s", v, (const char *)gl.GetString(GL_VENDOR), (const char *)gl.GetString(GL_RENDERER));
 
     why[0] = 0;
     ok = 1;

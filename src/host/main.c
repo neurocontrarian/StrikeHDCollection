@@ -613,6 +613,16 @@ static void apply_settings(void)
     apply_edition();
     apply_window_mode();
     SDL_SetRenderVSync(ren, g_set.vsync ? 1 : 0);
+    {   /* what the display really does (tearing, judder reports) */
+        int vs = -9;
+        SDL_GetRenderVSync(ren, &vs);
+        const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(win));
+        int ww = 0, wh = 0;
+        SDL_GetWindowSizeInPixels(win, &ww, &wh);
+        SDL_Log("video: %s, display %dx%d @ %.2f Hz, window %dx%d (mode %d), renderer %s, vsync asked %d got %d",
+                SDL_GetCurrentVideoDriver(), dm ? dm->w : 0, dm ? dm->h : 0, dm ? dm->refresh_rate : 0.0f,
+                ww, wh, g_set.window_mode, SDL_GetRendererName(ren), g_set.vsync, vs);
+    }
     ropts.sprite_limits = g_set.sprite_flicker;
     g_frame_insns = g_set.authentic_speed ? GEN_FRAME_INSNS_AUTHENTIC : GEN_FRAME_INSNS;
     apply_ws();
