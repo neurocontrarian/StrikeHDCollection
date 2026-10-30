@@ -20,8 +20,11 @@ neither is offered.
 - `src/host/crt.c` is a small RetroArch-style `.glslp` runner: passes, scale types, aliases, float
   framebuffers, `#pragma parameter` defaults and the preset's values. Each pass draws a quad into a
   framebuffer; the last pass draws into an SDL target texture that SDL then puts on screen, so the HUD,
-  minimap and menus are drawn on top, unfiltered, as before. The same game frame with the same options is
-  not filtered again (menus, pause).
+  minimap and menus are drawn on top, unfiltered, as before. The same picture with the same options is
+  not filtered again (menus, pause); the parameters go to the programs only when they change; every preset
+  shares one chain of passes, so switching presets or the screen shape compiles nothing.
+- **Screen: Flat** is the curved preset with `LR_CURV_X`, `LR_CURV_Y` and `LR_CORNER` at 0, exactly what
+  upstream's flat presets change.
 - It needs the OpenGL renderer: the GL calls go between SDL's (`SDL_FlushRenderer`, available since SDL
   3.2.0). With Display → Renderer on Automatic, OpenGL is chosen at startup while the filter is on (on
   Windows, Automatic is otherwise Direct3D). OpenGL 3.3 is the minimum.

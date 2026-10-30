@@ -66,6 +66,7 @@ static char settings_path[1024], controls_path[1024], stats_path[1024];
 static const game_module *game;
 
 static uint32_t fb[VDP_MAX_W * VDP_H];
+static uint64_t fb_picture;                 /* counts the pictures rendered into fb */
 static int fb_w = 320;
 /* HD packs: frame composed at hd.scale x into hdfb when a pack is active */
 static vdp_hd hd;
@@ -182,6 +183,7 @@ static void on_vblank(void)
     if (att_on) {                            /* launcher background: plain 4:3 */
         static const vdp_render_opts plain = { 0, 0, 0 };
         vdp_render(fb, VDP_MAX_W, &plain);
+        fb_picture++;
         fb_w = vdp_display_width();
         return;
     }
@@ -230,6 +232,7 @@ static void on_vblank(void)
     }
     uint64_t t0 = SDL_GetTicksNS();
     vdp_render(fb, VDP_MAX_W, &ropts);
+    fb_picture++;
     render_ns += SDL_GetTicksNS() - t0; render_frames++;
     fb_w = ropts.ext_left + vdp_display_width() + ropts.ext_right;
     if (g_set.hd_dump && game) {
@@ -1350,15 +1353,6 @@ static int rewind_step(void)                     /* one step back; 0 at the star
 
 static void draw_game(int ow, int oh)
 {
-    int S = 1;
-    SDL_Texture *src_tex = tex;
-    if (hd_on && hdtex) {
-        S = hd.scale;
-        src_tex = hdtex;
-        SDL_UpdateTexture(hdtex, &(SDL_Rect){ 0, 0, fb_w * S, VDP_H * S }, hdfb, VDP_MAX_W * 4 * 4);
-    } else {
-        SDL_UpdateTexture(tex, &(SDL_Rect){ 0, 0, fb_w, VDP_H }, fb, VDP_MAX_W * 4);
-    }
     int dispw = vdp_display_width();
     double aspect;
     switch (g_set.aspect) {
@@ -1368,7 +1362,34 @@ static void draw_game(int ow, int oh)
     }
     double dw = ow, dh = ow / aspect;
     if (dh > oh) { dh = oh; dw = oh * aspect; }
-    if (g_set.scaling == SCALE_INTEGER && oh >= VDP_H && !g_set.crt) {   /* the CRT filter resamples anyway: it fills the area */
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+    SDL_RenderClear(ren);
+
+    /* CRT filter: from the 1x picture (the tube makes its own detail), over
+     * the whole area (it resamples the picture, so no integer scaling) */
+    static int crt_said;
+    if (g_set.crt) {
+        SDL_FRect area = { (float)SDL_floor((ow - dw) / 2), (float)SDL_floor((oh - dh) / 2), (float)dw, (float)dh };
+        int console = dispw <= 256 ? 3 : 2;   /* Lola Retro: Mega Drive H32 / H40 */
+        crt_look look = { g_set.crt, g_set.crt_flat, g_set.crt_glow, g_set.crt_wires, g_set.crt_antimoire, g_set.crt_dither, g_set.crt_mask };
+        if (crt_draw(&look, fb, VDP_MAX_W, fb_w, VDP_H, console, area, g_frame, fb_picture)) {
+            game_dst = area;
+            crt_said = 0;
+            return;
+        }
+        if (!crt_said) { say(crt_why_not()); crt_said = 1; }
+    } else crt_said = 0;
+
+    int S = 1;
+    SDL_Texture *src_tex = tex;
+    if (hd_on && hdtex) {
+        S = hd.scale;
+        src_tex = hdtex;
+        SDL_UpdateTexture(hdtex, &(SDL_Rect){ 0, 0, fb_w * S, VDP_H * S }, hdfb, VDP_MAX_W * 4 * 4);
+    } else {
+        SDL_UpdateTexture(tex, &(SDL_Rect){ 0, 0, fb_w, VDP_H }, fb, VDP_MAX_W * 4);
+    }
+    if (g_set.scaling == SCALE_INTEGER && oh >= VDP_H) {
         int k = (int)(dh / VDP_H);
         if (k < 1) k = 1;
         dh = k * VDP_H;
@@ -1378,20 +1399,6 @@ static void draw_game(int ow, int oh)
     SDL_FRect dst = { (float)SDL_floor((ow - dw) / 2), (float)SDL_floor((oh - dh) / 2), (float)dw, (float)dh };
     game_dst = dst;
     SDL_FRect src = { 0, 0, (float)(fb_w * S), (float)(VDP_H * S) };
-
-    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
-    SDL_RenderClear(ren);
-    /* CRT filter: from the 1x picture (the tube makes its own detail) */
-    static int crt_said;
-    if (g_set.crt) {
-        int console = vdp_display_width() <= 256 ? 3 : 2;   /* Lola Retro: Mega Drive H32 / H40 */
-        crt_look look = { g_set.crt, g_set.crt_flat, g_set.crt_glow, g_set.crt_wires, g_set.crt_antimoire, g_set.crt_dither, g_set.crt_mask };
-        if (crt_draw(&look, fb, VDP_MAX_W, fb_w, VDP_H, console, dst, g_frame)) {
-            crt_said = 0;
-            return;
-        }
-        if (!crt_said) { say(crt_why_not()); crt_said = 1; }
-    } else crt_said = 0;
     if (g_set.scaling == SCALE_SHARP && S > 1 && dh <= VDP_H * S) {
         /* HD art already has the detail: just filter it down */
         SDL_SetTextureScaleMode(src_tex, SDL_SCALEMODE_LINEAR);
