@@ -1,0 +1,18 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Desert Strike: Return to the Gulf",
+  "wikidata": "Q1200598",
+  "system": "Genesis",
+  "type": "recomp",
+  "original": { "region": "USA/Europe", "sha1": "d7e7d8c358eb845b84fb08f904cc0b95d0a4053d" },
+  "project": "Strike Remastered Collection HD (Linux fork)",
+  "status": "released",
+  "targets": ["Linux"],
+  "approach": "Static recompilation of the 68000 code to C, checked in lockstep against Musashi; SDL3 host",
+  "maintainers": [{ "name": "neurocontrarian", "link": "https://github.com/neurocontrarian" }],
+  "links": [
+    { "label": "Original project", "url": "https://github.com/Icedomega13/StrikeHDCollection" },
+    { "label": "Linux release", "url": "https://github.com/neurocontrarian/StrikeHDCollection/releases/latest" }
+  ],
+  "notes": "Linux fork of Strike Remastered Collection HD by Icedomega13, who made the recompilation. This fork adds native Linux builds (glibc 2.35 or newer, Batocera included), frame pacing synced to the display and a CRT filter. Desert Strike only for now; Jungle Strike and Urban Strike are in the original project (Windows)."
+}
