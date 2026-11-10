@@ -1,3 +1,17 @@
+> **This is an unofficial fork** of [Icedomega13/StrikeHDCollection](https://github.com/Icedomega13/StrikeHDCollection), focused on Linux.
+> All credit for the project goes to its author; this fork only adds the following.
+>
+> - **Linux builds**: [Releases](https://github.com/neurocontrarian/StrikeHDCollection/releases) (currently Desert Strike only). One program, SDL3 built in, for any x86_64 Linux with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36, Batocera 44 and later). Built with `tools/linux-release/build.sh`.
+> - **Frame pacing synced to the display** and a diagnostics overlay (upstream PR #21).
+> - **CRT filter** with the Lola Retro shaders (upstream PR #22).
+> - **Batocera** launcher for the Ports menu (upstream PR #23), and building with only the ROMs you have (upstream PR #20).
+>
+> The fork's code is on the `crt-lola-retro` branch; `main` follows the original project. Linux build problems: [issues of this fork](https://github.com/neurocontrarian/StrikeHDCollection/issues). Everything else: [the original project](https://github.com/Icedomega13/StrikeHDCollection/issues).
+>
+> The original README follows, unchanged.
+
+---
+
 # Strike Remastered Collection HD
 
 Native PC versions of the three Sega Genesis Strike games: *Desert Strike: Return to the Gulf* (1992), *Jungle Strike* (1993) and *Urban Strike* (1994). They are static recompilations, with modern features added:
